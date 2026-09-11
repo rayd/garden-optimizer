@@ -12,11 +12,13 @@ defmodule GardenOptimizer.Scheduling do
 
   alias Ecto.Multi
   alias GardenOptimizer.Gardens
-  alias GardenOptimizer.Gardens.{Garden, GrowingArea}
+  alias GardenOptimizer.Gardens.{Garden, GardenPlant, GrowingArea}
+  alias GardenOptimizer.Plants.Plant
   alias GardenOptimizer.Repo
 
   alias GardenOptimizer.Scheduling.{
     Area,
+    Footprint,
     Assignment,
     FreeBlock,
     FreeBlocks,
@@ -156,6 +158,108 @@ defmodule GardenOptimizer.Scheduling do
     }
   end
 
+  @doc """
+  Set how many units of `plant` are planted into one free-square group, and re-solve.
+
+  The cap is enforced by running the real placer in memory first: if any of the new units would
+  not land, nothing is written and `{:error, :no_room}` comes back. That is stricter than area
+  arithmetic and tells the truth about rectangle packing — 24 free squares will not take two
+  tomatoes if no 3x3 of them is contiguous.
+
+  Only rows this feature created are reconciled, so a stepper here can never delete a unit the
+  gardener added from the workbench.
+  """
+  @spec fill_block(Garden.t(), Plant.t(), map(), non_neg_integer(), keyword()) ::
+          {:ok, Schedule.t()} | {:error, atom()}
+  def fill_block(%Garden{} = garden, %Plant{} = plant, group, quantity, opts \\ [])
+      when is_integer(quantity) and quantity >= 0 do
+    strategy = Keyword.get(opts, :strategy, @default_strategy)
+    growing_areas = Gardens.list_growing_areas(garden)
+    existing = Gardens.list_garden_plants(garden)
+    current = Enum.count(existing, &block_fill_unit?(&1, plant, group))
+
+    cond do
+      quantity == current ->
+        {:ok, get_schedule(garden)}
+
+      quantity < current ->
+        do_fill(garden, plant, group, quantity, current)
+
+      quantity > block_capacity(group, plant) ->
+        {:error, :no_room}
+
+      true ->
+        add_to_block(garden, plant, group, quantity, current, existing, growing_areas, strategy)
+    end
+  end
+
+  @doc """
+  The most units of `plant` that fit in a free-square group, measured against those squares.
+
+  This is the cap the sidebar enforces, and it is deliberately the *area of the squares you
+  clicked* rather than everything the pinned window could absorb. The pin is a window, so without
+  this the placer would happily succession-plant a fast crop through the whole bed for the rest of
+  the season — 500 lettuces into an opportunity described as "4 squares".
+  """
+  @spec block_capacity(map(), Plant.t()) :: non_neg_integer()
+  def block_capacity(group, %Plant{} = plant) do
+    per_unit = Footprint.reserved_sq_in(Footprint.for_sq_in(plant.sq_in))
+    div(group.count * Footprint.square_capacity(), per_unit)
+  end
+
+  defp add_to_block(garden, plant, group, quantity, current, existing, growing_areas, strategy) do
+    added = quantity - current
+    # Stand-in ids: the dry run only needs to know which units are new.
+    new_ids = for _ <- 1..added//1, do: Ecto.UUID.generate()
+    prospective = existing ++ Enum.map(new_ids, &prospective_row(&1, garden, plant, group))
+    grid = week_grid(garden, prospective)
+    areas = Enum.map(growing_areas, &Area.from_schema/1)
+
+    {_placements, _occupancy, unplaced} =
+      strategy.assign(grid, areas, Enum.map(prospective, &to_unit(&1, grid)))
+
+    if Enum.any?(new_ids, &Map.has_key?(unplaced, &1)) do
+      {:error, :no_room}
+    else
+      do_fill(garden, plant, group, quantity, current)
+    end
+  end
+
+  defp prospective_row(id, garden, plant, group) do
+    %GardenPlant{
+      id: id,
+      garden_id: garden.id,
+      plant_id: plant.id,
+      plant: plant,
+      growing_area_id: group.growing_area_id,
+      planting_window_start: group.start_date,
+      planting_window_end: group.window_end_date,
+      origin: :block_fill
+    }
+  end
+
+  defp do_fill(garden, plant, group, quantity, current) do
+    Gardens.set_block_quantity(garden, plant, group, quantity, current)
+
+    case build(garden) do
+      {:ok, schedule} -> {:ok, schedule}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "How many units of `plant` this feature has already planted into `group`."
+  def block_unit_count(garden_plants, %Plant{} = plant, group) do
+    Enum.count(garden_plants, &block_fill_unit?(&1, plant, group))
+  end
+
+  defp block_fill_unit?(garden_plant, plant, group) do
+    garden_plant.origin == :block_fill and
+      garden_plant.plant_id == plant.id and
+      garden_plant.growing_area_id == group.growing_area_id and
+      garden_plant.planting_window_start == group.start_date and
+      garden_plant.planting_window_end == group.window_end_date
+  end
+
   ## Reading
 
   @doc "The garden's current schedule, fully loaded, or nil if it has never been built."
@@ -204,6 +308,62 @@ defmodule GardenOptimizer.Scheduling do
   @doc "Free planting blocks that begin in `week`."
   def free_blocks_in_week(%Schedule{free_blocks: blocks}, week) do
     Enum.filter(blocks, &(&1.start_week == week))
+  end
+
+  @doc """
+  Free planting squares grouped into the opportunities a gardener can actually act on.
+
+  Squares in the same bed that open on the same date for the same number of weeks are one entry,
+  because filling them is one decision. Ordered by bed, then by the date they open.
+  """
+  def free_squares_by_bed(%Schedule{} = schedule) do
+    beds =
+      Repo.all(
+        from a in GrowingArea,
+          where: a.garden_id == ^schedule.garden_id,
+          order_by: [asc: a.inserted_at]
+      )
+
+    grouped =
+      schedule.free_blocks
+      |> Enum.group_by(&{&1.growing_area_id, &1.start_week, &1.weeks_available})
+      |> Enum.map(fn {{area_id, start_week, weeks}, squares} ->
+        start_date = List.first(squares).start_date
+
+        %{
+          growing_area_id: area_id,
+          count: length(squares),
+          start_week: start_week,
+          start_date: start_date,
+          weeks_available: weeks,
+          # Inclusive last week the squares are still free, as a date the pin can be stored as.
+          window_end_date: Date.add(start_date, (weeks - 1) * 7)
+        }
+      end)
+      |> Enum.group_by(& &1.growing_area_id)
+
+    beds
+    |> Enum.map(fn bed ->
+      %{
+        growing_area: bed,
+        groups: grouped |> Map.get(bed.id, []) |> Enum.sort_by(&{&1.start_week, -&1.count})
+      }
+    end)
+    |> Enum.reject(&(&1.groups == []))
+  end
+
+  @doc """
+  Which of `plants` could be planted into a free-square group and finish before it closes.
+
+  Delegates the actual rule to `WeekGrid.plantable_in_window?/4`; this just turns the group's
+  dates into week indices first.
+  """
+  def plantable_in_group(%Garden{} = garden, garden_plants, group, plants) do
+    grid = week_grid(garden, garden_plants)
+    from = WeekGrid.frost_index(grid.last_frost_date, group.start_date)
+    to = WeekGrid.frost_index(grid.last_frost_date, group.window_end_date)
+
+    Enum.filter(plants, &WeekGrid.plantable_in_window?(grid, &1, from, to))
   end
 
   @doc """
