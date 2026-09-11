@@ -83,6 +83,25 @@ worth knowing:
 - The cap is the area of those squares, deliberately — the window alone would let a fast crop be
   succession-planted through the whole bed for the rest of the season.
 
+## Access and ownership
+
+There are no accounts. A visitor is a random token minted on first arrival and kept in a signed,
+`http_only` session cookie; gardens belong to whoever created them, and only the SHA-256 of the
+token is stored, so a database dump contains no usable credentials. Fetching someone else's garden
+raises `Ecto.NoResultsError` rather than a 403, so a response cannot be used to confirm that an id
+is real.
+
+The consequence to be aware of: losing the cookie loses the gardens. There is no recovery, by
+design — clearing site data is permanent.
+
+Set `ACCESS_CODE` to close a deployment to invited testers. They arrive once at `?access=CODE`;
+the grant is recorded in the session and the request redirects to the same page without it, so the
+code does not linger in history or leak through `Referer` headers. The LiveView mount hook
+re-checks it, because a websocket connect never runs the router pipeline.
+
+In dev, `mix run priv/repo/seeds.exs` prints a `/dev/adopt/<token>` link — the seeded garden needs
+an owner, and an `http_only` cookie cannot be set from the browser.
+
 ## Known limitations
 
 - Bed dimensions must be whole multiples of 6″, enforced in the changeset *and* by a database
@@ -95,3 +114,5 @@ worth knowing:
 - Display week numbers shift when the plant list changes, since week 1 is defined by the earliest
   plantable week. The UI therefore leads with calendar dates.
 - Plant import cannot read pages that render their content with JavaScript.
+- Plant import is unmetered. `ACCESS_CODE` keeps strangers out, but any tester holding the code can
+  spend real money on model calls; a per-visitor or per-IP throttle is still missing.

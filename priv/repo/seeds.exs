@@ -3,11 +3,18 @@
 #
 #     mix run priv/repo/seeds.exs
 
-alias GardenOptimizer.{Gardens, Plants, Repo, Scheduling}
+alias GardenOptimizer.{Gardens, Plants, Repo, Scheduling, Visitors}
+alias GardenOptimizer.Visitors.Scope
 
 Repo.delete_all(GardenOptimizer.Gardens.Garden)
 
-{:ok, garden} = Gardens.create_garden(%{"name" => "Backyard beds", "zip_code" => "27516"})
+# Gardens belong to a visitor, and a visitor is just a token in a cookie -- so seeded data needs
+# one, and you need the same token in your browser to see it. SEED_VISITOR_TOKEN lets you reuse a
+# token across re-seeds; otherwise a fresh one is minted and printed below.
+token = System.get_env("SEED_VISITOR_TOKEN") || Visitors.new_token()
+scope = Scope.for_token(token)
+
+{:ok, garden} = Gardens.create_garden(scope, %{"name" => "Backyard beds", "zip_code" => "27516"})
 IO.puts("Garden: #{garden.name} — #{garden.last_frost_date} → #{garden.first_frost_date}")
 
 beds =
@@ -125,3 +132,15 @@ IO.puts(
 
 IO.puts("Unplaced: #{inspect(Scheduling.unplaced_details(schedule))}")
 IO.puts("\nOpen this garden at: /gardens/#{garden.id}")
+
+IO.puts("""
+
+Gardens belong to a visitor, which is a token in an http_only session cookie -- so the browser
+cannot adopt one on its own. In dev, open this once to claim the seeded garden:
+
+    #{System.get_env("PHX_HOST") || "http://localhost:4000"}/dev/adopt/#{token}
+
+To keep the same token across re-seeds:
+
+    SEED_VISITOR_TOKEN=#{token} mix run priv/repo/seeds.exs
+""")

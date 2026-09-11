@@ -45,6 +45,10 @@ defmodule GardenOptimizerWeb.Router do
     scope "/dev" do
       pipe_through :browser
 
+      # Lets `mix run priv/repo/seeds.exs` hand you the seeded garden's visitor token, which the
+      # browser cannot set itself because the session cookie is http_only.
+      get "/adopt/:token", GardenOptimizerWeb.DevController, :adopt
+
       live_dashboard "/dashboard", metrics: GardenOptimizerWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
