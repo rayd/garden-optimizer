@@ -362,32 +362,57 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
           phx-submit="add_area"
           class="mt-4"
         >
-          <div class="flex flex-wrap items-end gap-3">
-            <div class="w-40">
-              <.input field={@area_form[:name]} label="Name" placeholder="Bed 1" autocomplete="off" />
+          <div class="flex flex-wrap items-start gap-3">
+            <div class="w-40 pt-0">
+              <.input field={@area_form[:name]} label="Name" placeholder="Bed 1" autocomplete="off" show_errors={false} />
             </div>
-            <div class="w-28">
+            <div class="w-28 pt-0">
               <.input
                 field={@area_form[:width_in]}
                 type="number"
                 label="Width (in)"
                 min="6"
                 step="6"
+                show_errors={false}
               />
             </div>
-            <div class="w-28">
+            <div class="w-28 pt-0">
               <.input
                 field={@area_form[:length_in]}
                 type="number"
                 label="Length (in)"
                 min="6"
                 step="6"
+                show_errors={false}
               />
             </div>
-            <.button class="btn btn-outline">Add bed</.button>
+            <div class="flex self-center items-end pt-0">
+              <.button class="btn btn-outline h-12">Add bed</.button>
+            </div>
           </div>
 
-          <p class="mt-2 text-xs text-base-content/50">
+          <div class="min-h-6 mt-1">
+            <p :if={Phoenix.Component.used_input?(@area_form[:name]) and @area_form[:name].errors != []} class="flex gap-2 items-start text-sm text-error">
+              <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
+              <span>
+                <strong>Name:</strong> {Enum.map_join(@area_form[:name].errors, ", ", &translate_error/1)}
+              </span>
+            </p>
+            <p :if={Phoenix.Component.used_input?(@area_form[:width_in]) and @area_form[:width_in].errors != []} class="flex gap-2 items-start text-sm text-error">
+              <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
+              <span>
+                <strong>Width (in):</strong> {Enum.map_join(@area_form[:width_in].errors, ", ", &translate_error/1)}
+              </span>
+            </p>
+            <p :if={Phoenix.Component.used_input?(@area_form[:length_in]) and @area_form[:length_in].errors != []} class="flex gap-2 items-start text-sm text-error">
+              <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
+              <span>
+                <strong>Length (in):</strong> {Enum.map_join(@area_form[:length_in].errors, ", ", &translate_error/1)}
+              </span>
+            </p>
+          </div>
+
+          <p class="mt-3 text-xs text-base-content/50">
             <span :if={@area_preview}>{@area_preview}</span>
             <span :if={is_nil(@area_preview)}>
               Beds are planned in 6″ squares, so both dimensions step by 6.
