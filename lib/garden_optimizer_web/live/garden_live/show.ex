@@ -366,7 +366,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
                 label="Width (in)"
                 min="6"
                 step="6"
-                errors={[]}
+                show_errors={false}
               />
             </div>
             <div class="w-28 pt-0">
@@ -376,7 +376,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
                 label="Length (in)"
                 min="6"
                 step="6"
-                errors={[]}
+                show_errors={false}
               />
             </div>
             <div class="flex self-center items-end pt-0">
