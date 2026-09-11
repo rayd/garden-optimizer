@@ -357,7 +357,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
         >
           <div class="flex flex-wrap items-start gap-3">
             <div class="w-40 pt-0">
-              <.input field={@area_form[:name]} label="Name" placeholder="Bed 1" autocomplete="off" />
+              <.input field={@area_form[:name]} label="Name" placeholder="Bed 1" autocomplete="off" show_errors={false} />
             </div>
             <div class="w-28 pt-0">
               <.input
@@ -385,6 +385,12 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
           </div>
 
           <div class="min-h-6 mt-1">
+            <p :if={Phoenix.Component.used_input?(@area_form[:name]) and @area_form[:name].errors != []} class="flex gap-2 items-start text-sm text-error">
+              <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
+              <span>
+                <strong>Name:</strong> {Enum.map_join(@area_form[:name].errors, ", ", &translate_error/1)}
+              </span>
+            </p>
             <p :if={Phoenix.Component.used_input?(@area_form[:width_in]) and @area_form[:width_in].errors != []} class="flex gap-2 items-start text-sm text-error">
               <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
               <span>
