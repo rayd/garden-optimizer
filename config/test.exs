@@ -46,3 +46,12 @@ config :phoenix,
 config :garden_optimizer, :frost_api,
   base_url: "https://frost.test/api/v1",
   req_options: [plug: {Req.Test, GardenOptimizer.FrostStub}, retry: false]
+
+config :garden_optimizer, :anthropic,
+  base_url: "https://anthropic.test",
+  model: "claude-haiku-4-5",
+  api_key: "test-key",
+  req_options: [plug: {Req.Test, GardenOptimizer.AnthropicStub}, retry: false]
+
+config :garden_optimizer, :page_fetch,
+  req_options: [plug: {Req.Test, GardenOptimizer.PageStub}, retry: false]

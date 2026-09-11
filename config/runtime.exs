@@ -16,6 +16,14 @@ import Config
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
+# The Anthropic API key is read from the environment in every environment, not just prod,
+# because plant import runs in dev too. Absent key => Importer returns {:error, :missing_api_key}.
+if config_env() != :test do
+  if api_key = System.get_env("ANTHROPIC_API_KEY") do
+    config :garden_optimizer, :anthropic, api_key: api_key
+  end
+end
+
 if System.get_env("PHX_SERVER") do
   config :garden_optimizer, GardenOptimizerWeb.Endpoint, server: true
 end

@@ -65,6 +65,14 @@ config :garden_optimizer, :frost_api,
   base_url: "https://apis.joelgrant.dev/api/v1",
   req_options: []
 
+config :garden_optimizer, :anthropic,
+  base_url: "https://api.anthropic.com",
+  model: "claude-haiku-4-5",
+  api_key: nil,
+  req_options: []
+
+config :garden_optimizer, :page_fetch, req_options: []
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

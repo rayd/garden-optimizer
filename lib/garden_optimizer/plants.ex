@@ -8,7 +8,7 @@ defmodule GardenOptimizer.Plants do
 
   import Ecto.Query, warn: false
 
-  alias GardenOptimizer.Plants.Plant
+  alias GardenOptimizer.Plants.{Importer, Plant}
   alias GardenOptimizer.Repo
 
   @doc "Every known plant, alphabetically by common type then variety."
@@ -32,5 +32,25 @@ defmodule GardenOptimizer.Plants do
     plant
     |> Plant.changeset(attrs)
     |> Repo.update()
+  end
+
+  @doc """
+  Import a plant from a URL, refreshing the existing row if that URL was imported before.
+
+  Errors carry a reason atom that `Importer.describe_error/1` turns into user-facing copy.
+  """
+  @spec import_from_url(String.t()) :: {:ok, Plant.t()} | {:error, Importer.error()}
+  def import_from_url(url) do
+    with {:ok, attrs} <- Importer.extract(url) do
+      existing = get_plant_by_source_url(attrs["source_url"]) || %Plant{}
+
+      existing
+      |> Plant.changeset(attrs)
+      |> Repo.insert_or_update()
+      |> case do
+        {:ok, plant} -> {:ok, plant}
+        {:error, changeset} -> {:error, {:invalid_plant, changeset}}
+      end
+    end
   end
 end
