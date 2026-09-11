@@ -16,8 +16,7 @@ defmodule GardenOptimizerWeb.PlantSearchComponent do
   The parent live view should handle the "select_plant" event and perform the
   appropriate action (e.g., add to garden, set quantity, etc.).
   """
-  use Phoenix.LiveComponent
-  use GardenOptimizerWeb, :html
+  use GardenOptimizerWeb, :live_component
 
   alias GardenOptimizer.Plants
 
