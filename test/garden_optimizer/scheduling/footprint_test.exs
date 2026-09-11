@@ -12,18 +12,19 @@ defmodule GardenOptimizer.Scheduling.FootprintTest do
       assert Footprint.for_sq_in(1) == {:shared, 1}
     end
 
-    test "larger plants claim a rectangle of whole squares" do
+    test "larger plants claim a square block of whole squares" do
       # 12" x 12" lettuce -> 4 squares -> 2x2.
       assert Footprint.for_sq_in(144) == {:block, 2, 2}
       # 18" x 18" tomato -> 9 squares -> 3x3.
       assert Footprint.for_sq_in(324) == {:block, 3, 3}
-      # 37 sq in barely spills over one square.
-      assert Footprint.for_sq_in(37) == {:block, 2, 1}
+      # 37 sq in barely spills over one square -> 2 squares -> 2x2 block.
+      assert Footprint.for_sq_in(37) == {:block, 2, 2}
     end
 
-    test "rectangles are as square as possible, rounding up when they must" do
-      assert Footprint.for_sq_in(200) == {:block, 3, 2}
-      # 3 squares has no exact rectangle, so it takes a 2x2 and wastes one square.
+    test "blocks are always square, rounding up when they must" do
+      # 200 sq in -> 6 squares -> 3x3 block (wastes 3 squares).
+      assert Footprint.for_sq_in(200) == {:block, 3, 3}
+      # 3 squares -> 2x2 block (wastes one square).
       assert Footprint.for_sq_in(3 * 36) == {:block, 2, 2}
     end
 
@@ -53,6 +54,6 @@ defmodule GardenOptimizer.Scheduling.FootprintTest do
 
   test "square_count/1 counts the squares touched" do
     assert Footprint.square_count({:shared, 9}) == 1
-    assert Footprint.square_count({:block, 3, 2}) == 6
+    assert Footprint.square_count({:block, 3, 3}) == 9
   end
 end
