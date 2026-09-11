@@ -110,11 +110,10 @@ defmodule GardenOptimizer.Gardens do
   ## Garden plants
 
   @doc """
-  Every known plant paired with how many of it this garden holds.
+  Every plant associated with this garden paired with how many of it this garden holds.
 
-  Imported plants are catalog-wide, so a plant appears here with a quantity of zero the moment it
-  is imported — that is what gives the gardener something to set a quantity *on*. Plants already
-  chosen sort first.
+  Only plants explicitly added to this garden (with at least one quantity) are shown, sorted
+  alphabetically by plant type and variety name so the list remains stable as quantities change.
   """
   def plant_quantities(%Garden{id: garden_id}) do
     counts =
@@ -126,11 +125,11 @@ defmodule GardenOptimizer.Gardens do
       )
       |> Map.new()
 
-    Repo.all(from p in Plant, order_by: [asc: p.common_type, asc: p.variety_name])
+    # Only get plants that have been added to this garden
+    plant_ids = Map.keys(counts)
+
+    Repo.all(from p in Plant, where: p.id in ^plant_ids, order_by: [asc: p.common_type, asc: p.variety_name])
     |> Enum.map(&{&1, Map.get(counts, &1.id, 0)})
-    |> Enum.sort_by(fn {plant, quantity} ->
-      {if(quantity > 0, do: 0, else: 1), plant.common_type, plant.variety_name}
-    end)
   end
 
   @doc "Only the plants this garden actually holds, as `{plant, quantity}` pairs."
