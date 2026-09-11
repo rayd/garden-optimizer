@@ -46,9 +46,22 @@ if config_env() == :prod do
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
+  # The database (e.g. Neon) is reached over the public internet rather than
+  # a private network, so the connection is encrypted and the server
+  # certificate verified against OTP's built-in CA bundle — not just
+  # `ssl: true` with the (default) unverified encryption, which would still
+  # be vulnerable to a MITM.
+  db_host = database_url |> URI.parse() |> Map.fetch!(:host)
+
   config :garden_optimizer, GardenOptimizer.Repo,
-    # ssl: true,
     url: database_url,
+    ssl: true,
+    ssl_opts: [
+      verify: :verify_peer,
+      cacerts: :public_key.cacerts_get(),
+      server_name_indication: String.to_charlist(db_host),
+      customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]
+    ],
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     # For machines with several cores, consider starting multiple pools of `pool_size`
     # pool_count: 4,

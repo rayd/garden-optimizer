@@ -1,7 +1,13 @@
 # syntax=docker/dockerfile:1
 
-# Determine build platform based on the host platform
-FROM --platform=$BUILDPLATFORM hex.pm/elixir:1.20-erlang-29-debian-trixie as builder
+ARG ELIXIR_VERSION=1.20.4
+ARG OTP_VERSION=29.0.5
+ARG DEBIAN_VERSION=trixie-20260824-slim
+
+ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
+ARG RUNNER_IMAGE="debian:trixie-slim"
+
+FROM ${BUILDER_IMAGE} as builder
 
 WORKDIR /app
 
@@ -9,11 +15,8 @@ WORKDIR /app
 RUN apt-get update -y && apt-get install -y \
     build-essential \
     git \
-    npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Install node for asset compilation
-RUN npm install -g npm@latest
 
 # Copy in all our source code
 COPY . .
@@ -24,13 +27,11 @@ RUN mix local.hex --force && \
     mix local.rebar --force && \
     mix deps.get --only prod
 
-# Compile assets
-RUN npm ci --prefix assets && \
-    npm run build --prefix assets && \
-    mix assets.deploy
-
 # Compile application
 RUN mix compile
+
+# compile assets
+RUN mix assets.deploy
 
 # Build the release
 RUN mix release

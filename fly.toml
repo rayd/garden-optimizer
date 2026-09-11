@@ -1,52 +1,30 @@
-# fly.toml app configuration file generated for garden-optimizer
+# fly.toml app configuration file generated for anth-takehome-garden-optimizer on 2026-09-11T13:15:51-04:00
+#
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "garden-optimizer"
-primary_region = "sjc"
-
-[build]
-  image = "garden-optimizer:latest"
-
-[build.args]
-  ELIXIR_VERSION = "1.20"
-  OTP_VERSION = "29"
-  DEBIAN_VERSION = "trixie"
+app = 'anth-takehome-garden-optimizer'
+primary_region = 'iad'
 
 [env]
-  LOG_LEVEL = "info"
-  POOL_SIZE = "10"
+  LOG_LEVEL = 'info'
+  POOL_SIZE = '10'
+  PORT=8080
 
 [http_service]
-  internal_port = 4000
+  internal_port = 8080
   force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 0
+  processes = ['app']
 
-[[services]]
-  protocol = "tcp"
-  internal_port = 4000
-  processes = ["app"]
+  [http_service.concurrency]
+    type = 'connections'
+    hard_limit = 1000
+    soft_limit = 1000
 
-  [[services.ports]]
-    number = 80
-    handlers = ["http"]
-    force_https = true
-
-  [[services.ports]]
-    number = 443
-    handlers = ["tls", "http"]
-
-[checks]
-  [checks.alive]
-    type = "http"
-    interval = "10s"
-    timeout = "5s"
-    grace_period = "30s"
-    method = "GET"
-    path = "/"
-
-[vm]
+[[vm]]
+  memory = '1gb'
   cpus = 1
-  cpu_kind = "shared"
-  memory_mb = 256
+  memory_mb = 1024
