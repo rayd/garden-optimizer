@@ -35,35 +35,21 @@ defmodule GardenOptimizerWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
-        </a>
-      </div>
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
-          </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
-          </li>
-        </ul>
+    <header class="border-b border-base-300/60 bg-base-100/80 backdrop-blur sticky top-0 z-30">
+      <div class="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <.link navigate={~p"/"} class="group flex items-center gap-2.5">
+          <span class="grid size-8 place-items-center rounded-lg bg-emerald-600 text-white shadow-sm transition group-hover:bg-emerald-500">
+            <.icon name="hero-squares-2x2" class="size-4.5" />
+          </span>
+          <span class="text-base font-semibold tracking-tight">Garden Optimizer</span>
+        </.link>
+        <div class="flex-1"></div>
+        <.theme_toggle />
       </div>
     </header>
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
+    <main class="px-4 py-8 sm:px-6 lg:px-8">
+      <div class="mx-auto max-w-6xl">
         {render_slot(@inner_block)}
       </div>
     </main>

@@ -86,6 +86,7 @@ defmodule GardenOptimizerWeb do
       import Phoenix.HTML
       # Core UI components
       import GardenOptimizerWeb.CoreComponents
+      import GardenOptimizerWeb.Format
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

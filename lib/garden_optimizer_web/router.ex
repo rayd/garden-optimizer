@@ -17,7 +17,10 @@ defmodule GardenOptimizerWeb.Router do
   scope "/", GardenOptimizerWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", GardenLive.Index, :index
+    live "/gardens/new", GardenLive.New, :new
+    live "/gardens/:id", GardenLive.Show, :show
+    live "/gardens/:id/schedule", ScheduleLive.Show, :show
   end
 
   # Other scopes may use custom stacks.
