@@ -283,7 +283,12 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
           />
         </div>
 
-        <.capacity_panel capacity={@capacity} growing_areas={@growing_areas} schedule={@schedule} />
+        <.capacity_panel
+          :if={is_nil(@schedule)}
+          capacity={@capacity}
+          growing_areas={@growing_areas}
+          schedule={@schedule}
+        />
       </div>
     </Layouts.app>
     """
