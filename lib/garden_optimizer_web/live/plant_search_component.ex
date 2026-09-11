@@ -57,7 +57,10 @@ defmodule GardenOptimizerWeb.PlantSearchComponent do
         <li :for={plant <- @results} class="hover:bg-base-200 cursor-pointer">
           <button
             type="button"
-            phx-click={Phoenix.LiveView.JS.push("plant_selected", value: %{plant_id: plant.id})}
+            phx-click={
+              Phoenix.LiveView.JS.push("plant_selected", value: %{plant_id: plant.id})
+              |> Phoenix.LiveView.JS.push("clear", target: @myself)
+            }
             class="w-full text-left px-4 py-3 hover:bg-base-200 transition-colors"
           >
             <p class="text-sm font-medium truncate">{plant.variety_name}</p>
