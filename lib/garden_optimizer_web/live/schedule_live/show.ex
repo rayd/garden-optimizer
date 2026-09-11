@@ -110,6 +110,13 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
      socket |> assign(:importing, false) |> put_flash(:error, "That import didn't finish.")}
   end
 
+  @impl true
+  def handle_info({:plant_selected, plant_id}, socket) do
+    # When a plant is selected from the search component in the sidebar,
+    # set quantity to 1 by default for that plant in the current filling block
+    {:noreply, apply_block_quantity(socket, plant_id, 1)}
+  end
+
   defp apply_block_quantity(socket, plant_id, quantity) do
     %{filling: filling, garden: garden} = socket.assigns
     plant = Plants.get_plant!(plant_id)
@@ -458,21 +465,38 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
           </p>
         </header>
 
-        <div class="border-b border-base-300 px-5 py-3">
-          <form phx-submit="import" class="flex gap-2">
-            <input
-              type="url"
-              name="url"
-              placeholder="Paste a plant URL to add one"
-              disabled={@importing}
-              autocomplete="off"
-              class="input input-bordered input-sm w-full"
+        <div class="border-b border-base-300 space-y-3 px-5 py-3">
+          <div>
+            <label class="text-xs font-semibold text-base-content/70 uppercase tracking-wide block mb-2">
+              Search plants
+            </label>
+            <.live_component
+              module={GardenOptimizerWeb.PlantSearchComponent}
+              id="sidebar-plant-search"
+              placeholder="Search by plant name or type..."
+              input_size="input-sm"
             />
-            <button type="submit" disabled={@importing} class="btn btn-sm btn-primary shrink-0">
-              <span :if={@importing} class="loading loading-spinner loading-xs"></span>
-              {if @importing, do: "Reading…", else: "Add"}
-            </button>
-          </form>
+          </div>
+
+          <div>
+            <label class="text-xs font-semibold text-base-content/70 uppercase tracking-wide block mb-2">
+              Or import from URL
+            </label>
+            <form phx-submit="import" class="flex gap-2">
+              <input
+                type="url"
+                name="url"
+                placeholder="Paste a plant URL to add one"
+                disabled={@importing}
+                autocomplete="off"
+                class="input input-bordered input-sm w-full"
+              />
+              <button type="submit" disabled={@importing} class="btn btn-sm btn-primary shrink-0">
+                <span :if={@importing} class="loading loading-spinner loading-xs"></span>
+                {if @importing, do: "Reading…", else: "Add"}
+              </button>
+            </form>
+          </div>
         </div>
 
         <div class="min-h-0 flex-1 overflow-y-auto">
