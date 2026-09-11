@@ -106,6 +106,33 @@ defmodule GardenOptimizer.Plants.ImporterTest do
       refute prompt =~ "window.analytics"
     end
 
+    test "the prompt resolves the two ambiguities a plant page usually leaves open" do
+      stub_page()
+      stub_claude()
+
+      assert {:ok, _attrs} = Importer.extract("https://seeds.test/cherokee-purple")
+      assert_received {:claude_request, body, _headers}
+      [%{"content" => prompt}] = body["messages"]
+
+      # The prompt wraps for readability, so compare against it unwrapped — this is about what
+      # the sentences say, not where the source happens to break them.
+      unwrapped = String.replace(prompt, ~r/\s+/, " ")
+
+      # A page usually gives both a direct-sow and a transplant date, and a spacing range rather
+      # than a single number. Left unsaid, the model picks one arbitrarily and the schedule
+      # shifts between imports of the same page.
+      assert unwrapped =~
+               "When a plant can be direct seeded or transplanted, prefer the transplanting method."
+
+      assert unwrapped =~
+               "When a plant has min/max/average spacing requirements, use the average."
+
+      # They have to land before the field list, or they read as notes on the JSON shape.
+      [guidance, fields] = String.split(unwrapped, "Structure the response as a JSON object")
+      assert guidance =~ "prefer the transplanting method"
+      assert guidance =~ "use the average"
+      assert fields =~ "variety_name"
+    end
 
     test "rejects anything that isn't an http(s) URL" do
       assert {:error, :invalid_url} = Importer.extract("not a url")

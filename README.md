@@ -33,6 +33,11 @@ readable text with `Floki`, and sends that text to `claude-haiku-4-5` under a JS
 rather than asking the model to do it keeps the request testable against a fixture and makes
 "couldn't reach the page" distinguishable from "couldn't understand it".
 
+The prompt settles the two ambiguities a plant page almost always leaves open: prefer the
+transplanting method when a plant can be direct seeded *or* transplanted, and take the average
+when spacing is given as a range. Without those, the same page can yield a different schedule on
+each import.
+
 **Scheduling** (`GardenOptimizer.Scheduling`) is a pure core with a thin persistence wrapper:
 
 - `WeekGrid` — weeks are 7-day blocks aligned to the last frost date, so a plant's eligible

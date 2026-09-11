@@ -191,6 +191,8 @@ defmodule GardenOptimizer.Plants.Importer do
     tomato, broccoli, lettuce), the spacing requirements, when the plant should be direct sown
     or transplanted relative to the last frost date or first frost date, how long after planting
     the harvest will become available and whether the harvest is a one-time harvest or continuous.
+    When a plant can be direct seeded or transplanted, prefer the transplanting method. When a
+    plant has min/max/average spacing requirements, use the average.
     Structure the response as a JSON object with the following fields:
     - variety_name
     - common_type
