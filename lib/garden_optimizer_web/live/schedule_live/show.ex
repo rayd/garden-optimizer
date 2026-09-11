@@ -15,7 +15,7 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    garden = Gardens.get_garden!(id)
+    garden = Gardens.get_garden!(socket.assigns.current_scope, id)
 
     case Scheduling.get_schedule(garden) do
       nil ->
@@ -266,7 +266,7 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
     assigns = assign_new(assigns, :activity, fn -> week_activity(assigns.schedule) end)
 
     ~H"""
-    <Layouts.app flash={@flash}>
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.header>
         {@garden.name} schedule
         <:subtitle>

@@ -8,6 +8,7 @@ defmodule GardenOptimizerWeb.Router do
     plug :put_root_layout, html: {GardenOptimizerWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug GardenOptimizerWeb.Plugs.Visitor
   end
 
   pipeline :api do
@@ -17,10 +18,12 @@ defmodule GardenOptimizerWeb.Router do
   scope "/", GardenOptimizerWeb do
     pipe_through :browser
 
-    live "/", GardenLive.Index, :index
-    live "/gardens/new", GardenLive.New, :new
-    live "/gardens/:id", GardenLive.Show, :show
-    live "/gardens/:id/schedule", ScheduleLive.Show, :show
+    live_session :visitor, on_mount: GardenOptimizerWeb.VisitorHook do
+      live "/", GardenLive.Index, :index
+      live "/gardens/new", GardenLive.New, :new
+      live "/gardens/:id", GardenLive.Show, :show
+      live "/gardens/:id/schedule", ScheduleLive.Show, :show
+    end
   end
 
   # Other scopes may use custom stacks.

@@ -9,6 +9,8 @@ defmodule GardenOptimizer.Fixtures do
   alias GardenOptimizer.Plants
   alias GardenOptimizer.Plants.Plant
   alias GardenOptimizer.Scheduling.{Area, Unit}
+  alias GardenOptimizer.Visitors
+  alias GardenOptimizer.Visitors.Scope
 
   @doc "An unsaved plant struct — enough for the pure algorithm, which never touches the repo."
   def plant(attrs \\ %{}) do
@@ -59,7 +61,23 @@ defmodule GardenOptimizer.Fixtures do
     plant
   end
 
-  def garden_fixture(attrs \\ %{}) do
+  @doc """
+  A fresh anonymous visitor.
+
+  Gardens belong to one of these, so tests that cross visitors — the interesting access-control
+  cases — build two and check that neither can see the other's.
+  """
+  def visitor_scope do
+    Scope.for_token(Visitors.new_token())
+  end
+
+  @doc """
+  A garden owned by `scope`.
+
+  Ownership is a required argument rather than a default, because a fixture that quietly invents
+  an owner makes it easy to write a test that passes while proving nothing about access.
+  """
+  def garden_fixture(%Scope{} = scope, attrs \\ %{}) do
     {:ok, garden} =
       %{
         "name" => "Backyard",
@@ -68,7 +86,12 @@ defmodule GardenOptimizer.Fixtures do
         "first_frost_date" => ~D[2027-11-03]
       }
       |> Map.merge(Map.new(attrs, fn {k, v} -> {to_string(k), v} end))
-      |> then(&GardenOptimizer.Gardens.Garden.changeset(%GardenOptimizer.Gardens.Garden{}, &1))
+      |> then(fn attrs ->
+        GardenOptimizer.Gardens.Garden.changeset(
+          %GardenOptimizer.Gardens.Garden{visitor_hash: scope.hash},
+          attrs
+        )
+      end)
       |> GardenOptimizer.Repo.insert()
 
     garden

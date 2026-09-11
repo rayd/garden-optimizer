@@ -7,10 +7,11 @@ defmodule GardenOptimizerWeb.ScheduleLiveTest do
 
   alias GardenOptimizer.{Gardens, Scheduling}
 
-  setup do
-    garden = garden_fixture(name: "Backyard")
+  setup %{conn: conn} do
+    scope = visitor_scope()
+    garden = garden_fixture(scope, name: "Backyard")
     bed = growing_area_fixture(garden, name: "Bed 1", width_in: 48, length_in: 96)
-    %{garden: garden, bed: bed}
+    %{conn: visitor_conn(conn, scope), scope: scope, garden: garden, bed: bed}
   end
 
   defp with_schedule(garden, plants) do

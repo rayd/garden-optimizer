@@ -15,15 +15,29 @@ defmodule GardenOptimizer.Gardens do
   alias GardenOptimizer.Plants.Plant
   alias GardenOptimizer.Repo
   alias GardenOptimizer.Scheduling.Footprint
+  alias GardenOptimizer.Visitors.Scope
 
   ## Gardens
 
-  def list_gardens do
-    Repo.all(from g in Garden, order_by: [desc: g.inserted_at])
+  @doc "Gardens belonging to this visitor, newest first."
+  def list_gardens(%Scope{} = scope) do
+    Repo.all(
+      from g in Garden, where: g.visitor_hash == ^scope.hash, order_by: [desc: g.inserted_at]
+    )
   end
 
-  def get_garden!(id) do
-    Repo.get!(Garden, id) |> Repo.preload(:growing_areas)
+  @doc """
+  Fetch one of the visitor's gardens.
+
+  Scoped in the query rather than fetched-then-checked, so a garden belonging to someone else is
+  indistinguishable from one that does not exist — the caller gets `Ecto.NoResultsError` either
+  way, which Phoenix renders as a 404 rather than a 403 that would confirm it is real.
+  """
+  def get_garden!(%Scope{} = scope, id) do
+    Garden
+    |> where([g], g.visitor_hash == ^scope.hash)
+    |> Repo.get!(id)
+    |> Repo.preload(:growing_areas)
   end
 
   def change_garden(%Garden{} = garden, attrs \\ %{}), do: Garden.changeset(garden, attrs)
@@ -33,12 +47,13 @@ defmodule GardenOptimizer.Gardens do
 
   Frost lookup failures surface on the `zip_code` field so the form can show them in place.
   """
-  def create_garden(attrs, today \\ Date.utc_today()) do
+  def create_garden(%Scope{} = scope, attrs, today \\ Date.utc_today()) do
     attrs = normalize(attrs)
 
     with {:ok, zip} <- fetch_zip(attrs),
          {:ok, frost} <- lookup_frost(zip, today) do
-      %Garden{}
+      # Ownership is set from the scope, never from user input.
+      %Garden{visitor_hash: scope.hash}
       |> Garden.changeset(Map.merge(attrs, string_keys(frost)))
       |> Repo.insert()
     else
@@ -103,7 +118,18 @@ defmodule GardenOptimizer.Gardens do
     |> Repo.insert()
   end
 
-  def get_growing_area!(id), do: Repo.get!(GrowingArea, id)
+  @doc """
+  Fetch a growing area, scoped through its garden.
+
+  Bed ids are uuid4 and so unguessable in practice, but "unguessable" is not an access rule —
+  deleting a bed is a destructive action and has to be denied on ownership, not on obscurity.
+  """
+  def get_growing_area!(%Scope{} = scope, id) do
+    GrowingArea
+    |> join(:inner, [a], g in Garden, on: g.id == a.garden_id)
+    |> where([_a, g], g.visitor_hash == ^scope.hash)
+    |> Repo.get!(id)
+  end
 
   def delete_growing_area(%GrowingArea{} = area), do: Repo.delete(area)
 
@@ -128,7 +154,11 @@ defmodule GardenOptimizer.Gardens do
     # Only get plants that have been added to this garden
     plant_ids = Map.keys(counts)
 
-    Repo.all(from p in Plant, where: p.id in ^plant_ids, order_by: [asc: p.common_type, asc: p.variety_name])
+    Repo.all(
+      from p in Plant,
+        where: p.id in ^plant_ids,
+        order_by: [asc: p.common_type, asc: p.variety_name]
+    )
     |> Enum.map(&{&1, Map.get(counts, &1.id, 0)})
   end
 

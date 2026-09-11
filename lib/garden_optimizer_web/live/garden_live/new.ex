@@ -35,7 +35,7 @@ defmodule GardenOptimizerWeb.GardenLive.New do
   end
 
   def handle_event("save", %{"garden" => params}, socket) do
-    case Gardens.create_garden(params) do
+    case Gardens.create_garden(socket.assigns.current_scope, params) do
       {:ok, garden} ->
         {:noreply,
          socket
@@ -89,7 +89,7 @@ defmodule GardenOptimizerWeb.GardenLive.New do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-xl">
         <.header>
           Plan a new garden

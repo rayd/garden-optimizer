@@ -7,7 +7,7 @@ defmodule GardenOptimizer.SchedulingTest do
   alias GardenOptimizer.Scheduling.Footprint
 
   setup do
-    garden = garden_fixture()
+    garden = garden_fixture(visitor_scope())
     bed = growing_area_fixture(garden, name: "Bed 1", width_in: 48, length_in: 96)
     %{garden: garden, bed: bed}
   end
@@ -18,7 +18,7 @@ defmodule GardenOptimizer.SchedulingTest do
     end
 
     test "refuses to build a schedule with nowhere to plant" do
-      assert {:error, :no_growing_areas} = Scheduling.build(garden_fixture())
+      assert {:error, :no_growing_areas} = Scheduling.build(garden_fixture(visitor_scope()))
     end
 
     test "stores one assignment per plant unit", %{garden: garden} do

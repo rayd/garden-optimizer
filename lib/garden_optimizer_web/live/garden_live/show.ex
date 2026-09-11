@@ -23,7 +23,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    garden = Gardens.get_garden!(id)
+    garden = Gardens.get_garden!(socket.assigns.current_scope, id)
 
     {:ok,
      socket
@@ -83,7 +83,10 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
   end
 
   def handle_event("delete_area", %{"id" => id}, socket) do
-    id |> Gardens.get_growing_area!() |> Gardens.delete_growing_area()
+    socket.assigns.current_scope
+    |> Gardens.get_growing_area!(id)
+    |> Gardens.delete_growing_area()
+
     {:noreply, reload(socket)}
   end
 
@@ -245,7 +248,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.header>
         {@garden.name}
         <:subtitle>
@@ -364,7 +367,13 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
         >
           <div class="flex flex-wrap items-start gap-3">
             <div class="w-40 pt-0">
-              <.input field={@area_form[:name]} label="Name" placeholder="Bed 1" autocomplete="off" show_errors={false} />
+              <.input
+                field={@area_form[:name]}
+                label="Name"
+                placeholder="Bed 1"
+                autocomplete="off"
+                show_errors={false}
+              />
             </div>
             <div class="w-28 pt-0">
               <.input
@@ -392,22 +401,51 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
           </div>
 
           <div class="min-h-6 mt-1">
-            <p :if={Phoenix.Component.used_input?(@area_form[:name]) and @area_form[:name].errors != []} class="flex gap-2 items-start text-sm text-error">
+            <p
+              :if={
+                Phoenix.Component.used_input?(@area_form[:name]) and @area_form[:name].errors != []
+              }
+              class="flex gap-2 items-start text-sm text-error"
+            >
               <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
               <span>
-                <strong>Name:</strong> {Enum.map_join(@area_form[:name].errors, ", ", &translate_error/1)}
+                <strong>Name:</strong> {Enum.map_join(
+                  @area_form[:name].errors,
+                  ", ",
+                  &translate_error/1
+                )}
               </span>
             </p>
-            <p :if={Phoenix.Component.used_input?(@area_form[:width_in]) and @area_form[:width_in].errors != []} class="flex gap-2 items-start text-sm text-error">
+            <p
+              :if={
+                Phoenix.Component.used_input?(@area_form[:width_in]) and
+                  @area_form[:width_in].errors != []
+              }
+              class="flex gap-2 items-start text-sm text-error"
+            >
               <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
               <span>
-                <strong>Width (in):</strong> {Enum.map_join(@area_form[:width_in].errors, ", ", &translate_error/1)}
+                <strong>Width (in):</strong> {Enum.map_join(
+                  @area_form[:width_in].errors,
+                  ", ",
+                  &translate_error/1
+                )}
               </span>
             </p>
-            <p :if={Phoenix.Component.used_input?(@area_form[:length_in]) and @area_form[:length_in].errors != []} class="flex gap-2 items-start text-sm text-error">
+            <p
+              :if={
+                Phoenix.Component.used_input?(@area_form[:length_in]) and
+                  @area_form[:length_in].errors != []
+              }
+              class="flex gap-2 items-start text-sm text-error"
+            >
               <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
               <span>
-                <strong>Length (in):</strong> {Enum.map_join(@area_form[:length_in].errors, ", ", &translate_error/1)}
+                <strong>Length (in):</strong> {Enum.map_join(
+                  @area_form[:length_in].errors,
+                  ", ",
+                  &translate_error/1
+                )}
               </span>
             </p>
           </div>

@@ -4,11 +4,16 @@ defmodule GardenOptimizerWeb.Endpoint do
   # The session will be stored in the cookie and signed,
   # this means its contents can be read but not tampered with.
   # Set :encryption_salt if you would also like to encrypt it.
+  # The session cookie *is* the visitor's identity, so it has to outlive the browser window.
+  # Without max_age this is a session cookie and closing the browser destroys every garden the
+  # visitor made, with no account to recover them from.
   @session_options [
     store: :cookie,
     key: "_garden_optimizer_key",
     signing_salt: "A8tSUFZc",
-    same_site: "Lax"
+    same_site: "Lax",
+    http_only: true,
+    max_age: 60 * 60 * 24 * 365 * 2
   ]
 
   socket "/live", Phoenix.LiveView.Socket,
