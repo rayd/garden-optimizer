@@ -11,7 +11,7 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
   alias GardenOptimizer.Scheduling
 
   setup do
-    garden = garden_fixture()
+    garden = garden_fixture(visitor_scope())
     bed = growing_area_fixture(garden, name: "Bed 1", width_in: 48, length_in: 96)
 
     # One early one-time crop leaves the rest of the bed open all season, and frees its own

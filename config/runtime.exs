@@ -22,6 +22,11 @@ if config_env() != :test do
   if api_key = System.get_env("ANTHROPIC_API_KEY") do
     config :garden_optimizer, :anthropic, api_key: api_key
   end
+
+  # Testers reach the deployment once at ?access=CODE; without this the site is open.
+  if access_code = System.get_env("ACCESS_CODE") do
+    config :garden_optimizer, :access_code, access_code
+  end
 end
 
 if System.get_env("PHX_SERVER") do

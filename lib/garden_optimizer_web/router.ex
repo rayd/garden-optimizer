@@ -8,6 +8,9 @@ defmodule GardenOptimizerWeb.Router do
     plug :put_root_layout, html: {GardenOptimizerWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug :fetch_query_params
+    plug GardenOptimizerWeb.Plugs.AccessCode
+    plug GardenOptimizerWeb.Plugs.Visitor
   end
 
   pipeline :api do
@@ -17,10 +20,12 @@ defmodule GardenOptimizerWeb.Router do
   scope "/", GardenOptimizerWeb do
     pipe_through :browser
 
-    live "/", GardenLive.Index, :index
-    live "/gardens/new", GardenLive.New, :new
-    live "/gardens/:id", GardenLive.Show, :show
-    live "/gardens/:id/schedule", ScheduleLive.Show, :show
+    live_session :visitor, on_mount: GardenOptimizerWeb.VisitorHook do
+      live "/", GardenLive.Index, :index
+      live "/gardens/new", GardenLive.New, :new
+      live "/gardens/:id", GardenLive.Show, :show
+      live "/gardens/:id/schedule", ScheduleLive.Show, :show
+    end
   end
 
   # Other scopes may use custom stacks.
@@ -39,6 +44,10 @@ defmodule GardenOptimizerWeb.Router do
 
     scope "/dev" do
       pipe_through :browser
+
+      # Lets `mix run priv/repo/seeds.exs` hand you the seeded garden's visitor token, which the
+      # browser cannot set itself because the session cookie is http_only.
+      get "/adopt/:token", GardenOptimizerWeb.DevController, :adopt
 
       live_dashboard "/dashboard", metrics: GardenOptimizerWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview

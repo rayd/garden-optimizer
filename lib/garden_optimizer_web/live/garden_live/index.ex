@@ -8,13 +8,13 @@ defmodule GardenOptimizerWeb.GardenLive.Index do
     {:ok,
      socket
      |> assign(:page_title, "Gardens")
-     |> stream(:gardens, Gardens.list_gardens())}
+     |> stream(:gardens, Gardens.list_gardens(socket.assigns.current_scope))}
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.header>
         Your gardens
         <:subtitle>Plan what goes where, and when, across the whole season.</:subtitle>

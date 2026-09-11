@@ -31,6 +31,16 @@ defmodule GardenOptimizerWeb.ConnCase do
     end
   end
 
+  @doc """
+  A connection carrying `scope`'s visitor token, as a returning browser would.
+
+  Without this the browser pipeline mints a *new* token for the request, which owns nothing — so
+  every fixture garden would 404 and the tests would be exercising the wrong thing.
+  """
+  def visitor_conn(conn, %GardenOptimizer.Visitors.Scope{} = scope) do
+    Plug.Test.init_test_session(conn, %{"visitor_token" => scope.token})
+  end
+
   setup tags do
     GardenOptimizer.DataCase.setup_sandbox(tags)
     {:ok, conn: Phoenix.ConnTest.build_conn()}

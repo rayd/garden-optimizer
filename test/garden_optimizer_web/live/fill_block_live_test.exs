@@ -10,7 +10,9 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
   alias GardenOptimizer.{Gardens, Scheduling}
 
   setup %{conn: conn} do
-    garden = garden_fixture(name: "Backyard")
+    scope = visitor_scope()
+    conn = visitor_conn(conn, scope)
+    garden = garden_fixture(scope, name: "Backyard")
     bed = growing_area_fixture(garden, name: "Bed 1", width_in: 48, length_in: 96)
 
     radish =
@@ -28,7 +30,7 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
     {:ok, schedule} = Scheduling.build(garden)
 
     {:ok, view, _html} = live(conn, ~p"/gardens/#{garden}/schedule")
-    %{garden: garden, bed: bed, schedule: schedule, view: view}
+    %{conn: conn, scope: scope, garden: garden, bed: bed, schedule: schedule, view: view}
   end
 
   # The four squares the radishes vacate part-way through — a bounded opportunity, unlike the
@@ -109,7 +111,7 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
   end
 
   test "a continuous harvester is withheld from a window something else reclaims",
-       %{view: view, bed: bed, garden: garden} do
+       %{view: view, bed: bed, garden: garden, scope: scope} do
     quick_crop()
 
     basil =
@@ -140,7 +142,7 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
     {:ok, _} = Scheduling.build(garden)
 
     # The squares the kale will claim are now free only until it goes in — a truncated window.
-    {:ok, view2, _} = live(build_conn(), ~p"/gardens/#{garden}/schedule")
+    {:ok, view2, _} = live(visitor_conn(build_conn(), scope), ~p"/gardens/#{garden}/schedule")
 
     truncated =
       garden
@@ -179,11 +181,11 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
   end
 
   test "the stepper adds one at a time and reports the garden-wide total",
-       %{bed: bed, garden: garden} do
+       %{bed: bed, garden: garden, scope: scope} do
     lettuce = quick_crop()
     {:ok, 5} = Gardens.set_plant_quantity(garden, lettuce, 5)
 
-    {:ok, view, _} = live(build_conn(), ~p"/gardens/#{garden}/schedule")
+    {:ok, view, _} = live(visitor_conn(build_conn(), scope), ~p"/gardens/#{garden}/schedule")
     group = reclaimed_group(garden)
     html = open_group(view, bed, group)
 

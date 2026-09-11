@@ -63,8 +63,9 @@ defmodule GardenOptimizerWeb.GardenLiveTest do
     end
 
     test "lists gardens with their frost dates", %{conn: conn} do
-      garden_fixture(name: "Backyard")
-      {:ok, _view, html} = live(conn, ~p"/")
+      scope = visitor_scope()
+      garden_fixture(scope, name: "Backyard")
+      {:ok, _view, html} = live(visitor_conn(conn, scope), ~p"/")
 
       assert html =~ "Backyard"
       assert html =~ "Mar 31, 2027"
@@ -104,7 +105,8 @@ defmodule GardenOptimizerWeb.GardenLiveTest do
 
     test "creating a garden lands on its workbench", %{conn: conn} do
       stub_frost()
-      {:ok, view, _html} = live(conn, ~p"/gardens/new")
+      scope = visitor_scope()
+      {:ok, view, _html} = live(visitor_conn(conn, scope), ~p"/gardens/new")
       allow_async_stubs(view)
 
       assert {:error, {:live_redirect, %{to: to}}} =
@@ -112,7 +114,7 @@ defmodule GardenOptimizerWeb.GardenLiveTest do
                |> form("#garden-form", garden: %{name: "Backyard", zip_code: "27516"})
                |> render_submit()
 
-      garden = List.first(Gardens.list_gardens())
+      garden = List.first(Gardens.list_gardens(scope))
       assert to == "/gardens/#{garden.id}"
       assert garden.last_frost_date == ~D[2027-03-31]
     end
@@ -132,8 +134,10 @@ defmodule GardenOptimizerWeb.GardenLiveTest do
   end
 
   describe "garden workbench" do
-    setup do
-      %{garden: garden_fixture(name: "Backyard")}
+    setup %{conn: conn} do
+      scope = visitor_scope()
+      garden = garden_fixture(scope, name: "Backyard")
+      %{conn: visitor_conn(conn, scope), scope: scope, garden: garden}
     end
 
     test "adds a bed from a preset and shows its square count", %{conn: conn, garden: garden} do
@@ -252,9 +256,11 @@ defmodule GardenOptimizerWeb.GardenLiveTest do
     test "quantity steppers move the capacity meter", %{conn: conn, garden: garden} do
       growing_area_fixture(garden, width_in: 48, length_in: 96)
       plant = plant_fixture(sq_in: 324)
+      {:ok, 1} = Gardens.set_plant_quantity(garden, plant, 1)
 
       {:ok, view, html} = live(conn, ~p"/gardens/#{garden}")
-      assert html =~ "0.0"
+      # One tomato reserves 9 of 128 squares.
+      assert html =~ "7.0"
 
       html =
         view
@@ -263,14 +269,14 @@ defmodule GardenOptimizerWeb.GardenLiveTest do
         )
         |> render_click()
 
-      # One tomato reserves 9 of 128 squares.
-      assert html =~ "7.0"
-      assert [{^plant, 1}] = Gardens.plant_quantities(garden)
+      assert html =~ "14.1"
+      assert [{^plant, 2}] = Gardens.plant_quantities(garden)
     end
 
     test "typing a quantity sets it directly", %{conn: conn, garden: garden} do
       growing_area_fixture(garden, width_in: 48, length_in: 96)
       plant = plant_fixture(sq_in: 36)
+      {:ok, 1} = Gardens.set_plant_quantity(garden, plant, 1)
 
       {:ok, view, _html} = live(conn, ~p"/gardens/#{garden}")
 

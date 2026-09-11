@@ -16,6 +16,10 @@ defmodule GardenOptimizer.Gardens.Garden do
     field :last_frost_date, :date
     field :first_frost_date, :date
 
+    # SHA-256 of the visitor token that owns this garden. Set from the caller's scope and
+    # deliberately absent from `cast/3` below, so no request body can claim someone else's garden.
+    field :visitor_hash, :string
+
     has_many :growing_areas, GrowingArea, preload_order: [asc: :inserted_at]
     has_many :garden_plants, GardenPlant
 

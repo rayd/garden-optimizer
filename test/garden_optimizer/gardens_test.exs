@@ -22,6 +22,7 @@ defmodule GardenOptimizer.GardensTest do
 
       assert {:ok, garden} =
                Gardens.create_garden(
+                 visitor_scope(),
                  %{"name" => "Backyard", "zip_code" => "27516"},
                  ~D[2026-09-10]
                )
@@ -35,6 +36,7 @@ defmodule GardenOptimizer.GardensTest do
 
       assert {:error, changeset} =
                Gardens.create_garden(
+                 visitor_scope(),
                  %{"name" => "Backyard", "zip_code" => "00000"},
                  ~D[2026-09-10]
                )
@@ -47,6 +49,7 @@ defmodule GardenOptimizer.GardensTest do
 
       assert {:error, changeset} =
                Gardens.create_garden(
+                 visitor_scope(),
                  %{"name" => "Backyard", "zip_code" => "27516"},
                  ~D[2026-09-10]
                )
@@ -56,7 +59,7 @@ defmodule GardenOptimizer.GardensTest do
 
     test "a blank zip is a validation error, not a lookup" do
       assert {:error, changeset} =
-               Gardens.create_garden(%{"name" => "Backyard", "zip_code" => ""})
+               Gardens.create_garden(visitor_scope(), %{"name" => "Backyard", "zip_code" => ""})
 
       assert errors_on(changeset).zip_code != []
     end
@@ -64,7 +67,7 @@ defmodule GardenOptimizer.GardensTest do
 
   describe "growing areas" do
     test "a bed is divided into whole 6-inch squares" do
-      garden = garden_fixture()
+      garden = garden_fixture(visitor_scope())
       area = growing_area_fixture(garden, name: "Bed 1", width_in: 48, length_in: 96)
 
       # 4' x 8' -> 8 columns x 16 rows.
@@ -72,14 +75,14 @@ defmodule GardenOptimizer.GardensTest do
     end
 
     test "common bed sizes are already whole numbers of squares" do
-      garden = garden_fixture()
+      garden = garden_fixture(visitor_scope())
       # 2.5' x 9' is exactly 5 x 18 squares.
       assert squares(growing_area_fixture(garden, width_in: 30, length_in: 108)) == 90
       assert squares(growing_area_fixture(garden, width_in: 36, length_in: 72)) == 72
     end
 
     test "a dimension that isn't a whole number of squares is rejected" do
-      garden = garden_fixture()
+      garden = garden_fixture(visitor_scope())
 
       assert {:error, changeset} =
                Gardens.add_growing_area(garden, %{
@@ -93,7 +96,7 @@ defmodule GardenOptimizer.GardensTest do
     end
 
     test "both dimensions are checked, not just the first" do
-      garden = garden_fixture()
+      garden = garden_fixture(visitor_scope())
 
       assert {:error, changeset} =
                Gardens.add_growing_area(garden, %{
@@ -107,7 +110,7 @@ defmodule GardenOptimizer.GardensTest do
     end
 
     test "a bed narrower than one square is rejected before the multiple check" do
-      garden = garden_fixture()
+      garden = garden_fixture(visitor_scope())
 
       assert {:error, changeset} =
                Gardens.add_growing_area(garden, %{
@@ -121,7 +124,7 @@ defmodule GardenOptimizer.GardensTest do
     end
 
     test "the database refuses a bad dimension even if the changeset is bypassed" do
-      garden = garden_fixture()
+      garden = garden_fixture(visitor_scope())
       area = growing_area_fixture(garden, width_in: 48, length_in: 96)
 
       assert_raise Postgrex.Error, ~r/whole_squares/, fn ->
@@ -141,7 +144,7 @@ defmodule GardenOptimizer.GardensTest do
 
   describe "set_plant_quantity/3" do
     setup do
-      garden = garden_fixture()
+      garden = garden_fixture(visitor_scope())
       growing_area_fixture(garden, width_in: 48, length_in: 96)
       %{garden: garden, plant: plant_fixture(sq_in: 324)}
     end
@@ -177,33 +180,36 @@ defmodule GardenOptimizer.GardensTest do
 
     test "a garden with no beds can't hold anything yet", %{plant: plant} do
       assert {:error, :no_growing_areas} =
-               Gardens.set_plant_quantity(garden_fixture(), plant, 1)
+               Gardens.set_plant_quantity(garden_fixture(visitor_scope()), plant, 1)
     end
 
-    test "the catalog lists every plant, chosen ones first", %{garden: garden, plant: plant} do
+    test "lists only the plants this garden holds, alphabetically", %{
+      garden: garden,
+      plant: plant
+    } do
       lettuce = plant_fixture(variety_name: "Buttercrunch", common_type: "lettuce", sq_in: 36)
       unused = plant_fixture(variety_name: "Detroit Red", common_type: "beet", sq_in: 16)
       {:ok, 3} = Gardens.set_plant_quantity(garden, plant, 3)
       {:ok, 8} = Gardens.set_plant_quantity(garden, lettuce, 8)
 
-      # A plant with no units still appears, so there is something to set a quantity on after
-      # importing it — but it sorts below the ones already chosen.
-      assert [{^lettuce, 8}, {^plant, 3}, {^unused, 0}] = Gardens.plant_quantities(garden)
-      assert [{^lettuce, 8}, {^plant, 3}] = Gardens.chosen_plant_quantities(garden)
+      # Ordered by common type then variety: lettuce before tomato. A plant nobody has chosen is
+      # absent entirely rather than listed at zero.
+      assert [{^lettuce, 8}, {^plant, 3}] = Gardens.plant_quantities(garden)
+      refute Enum.any?(Gardens.plant_quantities(garden), &(elem(&1, 0).id == unused.id))
     end
 
-    test "a plant chosen in another garden shows here with a quantity of zero", %{plant: plant} do
-      other = garden_fixture(name: "Front yard")
+    test "a plant chosen in another garden does not appear in this one", %{plant: plant} do
+      other = garden_fixture(visitor_scope(), name: "Front yard")
       growing_area_fixture(other, width_in: 48, length_in: 96)
       {:ok, 2} = Gardens.set_plant_quantity(other, plant, 2)
 
-      assert [{^plant, 0}] = Gardens.plant_quantities(garden_fixture(name: "Empty"))
+      assert Gardens.plant_quantities(garden_fixture(visitor_scope(), name: "Empty")) == []
     end
   end
 
   describe "capacity/1" do
     setup do
-      garden = garden_fixture()
+      garden = garden_fixture(visitor_scope())
       growing_area_fixture(garden, width_in: 48, length_in: 96)
       %{garden: garden}
     end
@@ -241,7 +247,7 @@ defmodule GardenOptimizer.GardensTest do
   end
 
   test "pinning a plant sets the constraint on every one of its units" do
-    garden = garden_fixture()
+    garden = garden_fixture(visitor_scope())
     bed = growing_area_fixture(garden)
     plant = plant_fixture(sq_in: 36)
     {:ok, 3} = Gardens.set_plant_quantity(garden, plant, 3)

@@ -73,6 +73,10 @@ config :garden_optimizer, :anthropic,
 
 config :garden_optimizer, :page_fetch, req_options: []
 
+# Set in production to close the deployment to invited testers. Unset means the site is open,
+# which is what dev and test want.
+config :garden_optimizer, :access_code, nil
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
