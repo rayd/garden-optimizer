@@ -4,6 +4,7 @@ defmodule GardenOptimizer.GardensTest do
   import GardenOptimizer.Fixtures
 
   alias GardenOptimizer.Gardens
+  alias GardenOptimizer.Gardens.GrowingArea
 
   @recorded File.read!("test/support/fixtures/frost_27516.json")
 
@@ -70,11 +71,71 @@ defmodule GardenOptimizer.GardensTest do
       assert squares(area) == 128
     end
 
-    test "dimensions that aren't a multiple of 6 floor to whole squares" do
+    test "common bed sizes are already whole numbers of squares" do
       garden = garden_fixture()
-      # 2.5' x 9' is exactly 5 x 18, but 40" would waste the last 4".
+      # 2.5' x 9' is exactly 5 x 18 squares.
       assert squares(growing_area_fixture(garden, width_in: 30, length_in: 108)) == 90
-      assert squares(growing_area_fixture(garden, width_in: 40, length_in: 40)) == 36
+      assert squares(growing_area_fixture(garden, width_in: 36, length_in: 72)) == 72
+    end
+
+    test "a dimension that isn't a whole number of squares is rejected" do
+      garden = garden_fixture()
+
+      assert {:error, changeset} =
+               Gardens.add_growing_area(garden, %{
+                 "name" => "Odd bed",
+                 "width_in" => 40,
+                 "length_in" => 96
+               })
+
+      assert errors_on(changeset).width_in == [~s(must be a multiple of 6")]
+      refute Map.has_key?(errors_on(changeset), :length_in)
+    end
+
+    test "both dimensions are checked, not just the first" do
+      garden = garden_fixture()
+
+      assert {:error, changeset} =
+               Gardens.add_growing_area(garden, %{
+                 "name" => "Odd bed",
+                 "width_in" => 40,
+                 "length_in" => 100
+               })
+
+      assert errors_on(changeset).width_in != []
+      assert errors_on(changeset).length_in != []
+    end
+
+    test "a bed narrower than one square is rejected before the multiple check" do
+      garden = garden_fixture()
+
+      assert {:error, changeset} =
+               Gardens.add_growing_area(garden, %{
+                 "name" => "Sliver",
+                 "width_in" => 4,
+                 "length_in" => 96
+               })
+
+      # Only the size error — telling someone a 4" bed isn't a multiple of 6 helps nobody.
+      assert errors_on(changeset).width_in == ["must be greater than or equal to 6"]
+    end
+
+    test "the database refuses a bad dimension even if the changeset is bypassed" do
+      garden = garden_fixture()
+      area = growing_area_fixture(garden, width_in: 48, length_in: 96)
+
+      assert_raise Postgrex.Error, ~r/whole_squares/, fn ->
+        Repo.query!("UPDATE growing_areas SET width_in = 40 WHERE id = $1", [
+          Ecto.UUID.dump!(area.id)
+        ])
+      end
+    end
+
+    test "nearest_sizes/1 points at the valid sizes on either side" do
+      assert GrowingArea.nearest_sizes(40) == {36, 42}
+      assert GrowingArea.nearest_sizes(100) == {96, 102}
+      # Never suggests a bed narrower than a single square.
+      assert GrowingArea.nearest_sizes(4) == {6, 12}
     end
   end
 

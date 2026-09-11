@@ -34,12 +34,25 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
      |> assign(:import_url, "")
      |> assign(:building, false)
      |> assign(:area_form, to_form(Gardens.change_growing_area(%GrowingArea{})))
+     |> assign(:area_preview, nil)
      |> reload()}
   end
 
   ## Growing areas
 
   @impl true
+  def handle_event("validate_area", %{"growing_area" => params}, socket) do
+    changeset =
+      %GrowingArea{}
+      |> Gardens.change_growing_area(params)
+      |> Map.put(:action, :validate)
+
+    {:noreply,
+     socket
+     |> assign(:area_form, to_form(changeset))
+     |> assign(:area_preview, area_preview(params))}
+  end
+
   def handle_event("add_area", %{"growing_area" => params}, socket) do
     params = Map.put_new(params, "name", "Bed #{length(socket.assigns.growing_areas) + 1}")
 
@@ -48,6 +61,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
         {:noreply,
          socket
          |> assign(:area_form, to_form(Gardens.change_growing_area(%GrowingArea{})))
+         |> assign(:area_preview, nil)
          |> reload()}
 
       {:error, changeset} ->
@@ -258,6 +272,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
           <.growing_areas_section
             growing_areas={@growing_areas}
             area_form={@area_form}
+            area_preview={@area_preview}
             common_beds={@common_beds}
           />
           <.plants_section
@@ -278,6 +293,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
 
   attr :growing_areas, :list, required: true
   attr :area_form, :any, required: true
+  attr :area_preview, :string, default: nil
   attr :common_beds, :list, required: true
 
   defp growing_areas_section(assigns) do
@@ -335,19 +351,41 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
         <.form
           for={@area_form}
           id="area-form"
+          phx-change="validate_area"
           phx-submit="add_area"
-          class="mt-4 flex flex-wrap items-end gap-3"
+          class="mt-4"
         >
-          <div class="w-40">
-            <.input field={@area_form[:name]} label="Name" placeholder="Bed 1" autocomplete="off" />
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="w-40">
+              <.input field={@area_form[:name]} label="Name" placeholder="Bed 1" autocomplete="off" />
+            </div>
+            <div class="w-28">
+              <.input
+                field={@area_form[:width_in]}
+                type="number"
+                label="Width (in)"
+                min="6"
+                step="6"
+              />
+            </div>
+            <div class="w-28">
+              <.input
+                field={@area_form[:length_in]}
+                type="number"
+                label="Length (in)"
+                min="6"
+                step="6"
+              />
+            </div>
+            <.button class="btn btn-outline">Add bed</.button>
           </div>
-          <div class="w-28">
-            <.input field={@area_form[:width_in]} type="number" label="Width (in)" min="6" />
-          </div>
-          <div class="w-28">
-            <.input field={@area_form[:length_in]} type="number" label="Length (in)" min="6" />
-          </div>
-          <.button class="btn btn-outline">Add bed</.button>
+
+          <p class="mt-2 text-xs text-base-content/50">
+            <span :if={@area_preview}>{@area_preview}</span>
+            <span :if={is_nil(@area_preview)}>
+              Beds are planned in 6″ squares, so both dimensions step by 6.
+            </span>
+          </p>
         </.form>
       </div>
     </section>
@@ -536,6 +574,34 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
       </p>
     </aside>
     """
+  end
+
+  # Shows the grid a bed will actually become, so the 6" rule reads as a consequence rather than
+  # an arbitrary rule. Falls back to naming the two nearest valid sizes when a dimension is off.
+  defp area_preview(%{"width_in" => width, "length_in" => length}) do
+    with {:ok, width} <- parse_dimension(width),
+         {:ok, length} <- parse_dimension(length) do
+      case {rem(width, 6), rem(length, 6)} do
+        {0, 0} ->
+          "#{div(length, 6)} × #{div(width, 6)} squares — #{div(length * width, 36)} in total."
+
+        _ ->
+          off = if rem(width, 6) != 0, do: width, else: length
+          {lower, upper} = GrowingArea.nearest_sizes(off)
+          ~s(#{off}" isn't a whole number of 6" squares — try #{lower}" or #{upper}".)
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp area_preview(_params), do: nil
+
+  defp parse_dimension(value) do
+    case Integer.parse(to_string(value)) do
+      {n, ""} when n >= 6 -> {:ok, n}
+      _ -> :error
+    end
   end
 
   defp total_squares(areas), do: areas |> Enum.map(&GrowingArea.squares/1) |> Enum.sum()

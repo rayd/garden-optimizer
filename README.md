@@ -61,6 +61,9 @@ mix precommit   # warnings-as-errors, unused deps, format, test
 
 ## Known limitations
 
+- Bed dimensions must be whole multiples of 6″, enforced in the changeset *and* by a database
+  check constraint, so a bed's stored size can never overstate its plantable grid. The form steps
+  both dimensions by 6 and previews the resulting grid as you type.
 - The space meter measures **area**; the layout packs **rectangles**. A garden can read under
   100% and still not fit — 14 tomatoes' worth of area exists in a 4′ × 8′ bed, but only ten 3×3
   blocks fit in a 16 × 8 grid. Anything that can't be placed is reported on the schedule rather

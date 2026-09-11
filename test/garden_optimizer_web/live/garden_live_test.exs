@@ -151,6 +151,49 @@ defmodule GardenOptimizerWeb.GardenLiveTest do
       assert html =~ "16 × 8 squares"
     end
 
+    test "previews the grid a bed will become as you type", %{conn: conn, garden: garden} do
+      {:ok, view, html} = live(conn, ~p"/gardens/#{garden}")
+      assert html =~ "both dimensions step by 6"
+
+      html =
+        view
+        |> form("#area-form", growing_area: %{name: "Bed 1", width_in: 48, length_in: 96})
+        |> render_change()
+
+      assert html =~ "16 × 8 squares — 128 in total"
+    end
+
+    test "a dimension that isn't a whole number of squares names the nearest sizes", %{
+      conn: conn,
+      garden: garden
+    } do
+      {:ok, view, _html} = live(conn, ~p"/gardens/#{garden}")
+
+      html =
+        view
+        |> form("#area-form", growing_area: %{name: "Odd bed", width_in: 40, length_in: 96})
+        |> render_change()
+
+      assert html =~ "try 36&quot; or 42&quot;"
+
+      # And submitting it is refused rather than silently rounded.
+      html =
+        view
+        |> form("#area-form", growing_area: %{name: "Odd bed", width_in: 40, length_in: 96})
+        |> render_submit()
+
+      assert html =~ "must be a multiple of 6"
+      assert Gardens.list_growing_areas(garden) == []
+    end
+
+    test "the dimension inputs step in whole squares", %{conn: conn, garden: garden} do
+      {:ok, _view, html} = live(conn, ~p"/gardens/#{garden}")
+
+      assert html =~ ~s(name="growing_area[width_in]")
+      assert Regex.match?(~r/growing_area\[width_in\][^>]*step="6"/, html)
+      assert Regex.match?(~r/growing_area\[length_in\][^>]*step="6"/, html)
+    end
+
     test "adds a bed from the form and can remove it", %{conn: conn, garden: garden} do
       {:ok, view, _html} = live(conn, ~p"/gardens/#{garden}")
 
