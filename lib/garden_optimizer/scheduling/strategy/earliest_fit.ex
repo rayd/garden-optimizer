@@ -12,6 +12,12 @@ defmodule GardenOptimizer.Scheduling.Strategy.EarliestFit do
       *fullest* square that still fits, so radishes consolidate into shared squares instead of
       each opening a fresh one.
 
+  Ordering is by the earliest week a unit can *actually* go in — its eligible range narrowed by
+  whatever the gardener pinned — and a pinned unit wins ties, being the more constrained of the
+  two. Sorting on the narrowed start is what keeps re-solving stable: a unit pinned to a window
+  opening in week 20 sorts among the other week-20 plantings rather than ahead of everything, so
+  it cannot reach back and take squares that earlier plantings had already settled into.
+
   A unit with no home anywhere in its window is reported rather than forced in, so the UI can
   say which plants didn't make it and why.
   """
@@ -26,8 +32,8 @@ defmodule GardenOptimizer.Scheduling.Strategy.EarliestFit do
   def assign(%WeekGrid{} = grid, areas, units) do
     units
     |> Enum.map(&annotate(&1, grid))
-    |> Enum.sort_by(fn %{window: {from, _to}, footprint: fp, unit: unit} ->
-      {from, -Footprint.square_count(fp), unit.id}
+    |> Enum.sort_by(fn %{effective_from: from, footprint: fp, unit: unit} ->
+      {from, if(Unit.fully_pinned?(unit), do: 0, else: 1), -Footprint.square_count(fp), unit.id}
     end)
     |> Enum.reduce({[], Occupancy.new(), %{}}, fn candidate, {placed, occupancy, unplaced} ->
       case place(candidate, grid, areas, occupancy) do
@@ -42,10 +48,16 @@ defmodule GardenOptimizer.Scheduling.Strategy.EarliestFit do
   end
 
   defp annotate(%Unit{} = unit, grid) do
+    {from, to} = WeekGrid.eligible_range(unit.plant, grid.last_frost_date, grid.first_frost_date)
+
+    {effective_from, _} =
+      narrow_to_pin(unit, max(from, grid.start_index), min(to, grid.end_index))
+
     %{
       unit: unit,
       footprint: Footprint.for_sq_in(unit.plant.sq_in),
-      window: WeekGrid.eligible_range(unit.plant, grid.last_frost_date, grid.first_frost_date)
+      window: {from, to},
+      effective_from: effective_from
     }
   end
 
@@ -53,16 +65,26 @@ defmodule GardenOptimizer.Scheduling.Strategy.EarliestFit do
     %{unit: unit, footprint: footprint, window: {from, to}} = candidate
 
     # A plant may only be planted inside its eligible window *and* inside the season.
-    from = max(from, grid.start_index)
-    to = min(to, grid.end_index)
+    season_from = max(from, grid.start_index)
+    season_to = min(to, grid.end_index)
+    {pinned_from, pinned_to} = narrow_to_pin(unit, season_from, season_to)
     areas = candidate_areas(areas, unit)
 
     cond do
       areas == [] -> {:error, :no_growing_area}
-      from > to -> {:error, :outside_season}
-      true -> search(unit, footprint, from..to//1, grid, areas, occupancy)
+      season_from > season_to -> {:error, :outside_season}
+      pinned_from > pinned_to -> {:error, :outside_window}
+      true -> search(unit, footprint, pinned_from..pinned_to//1, grid, areas, occupancy)
     end
   end
+
+  # A pinned unit is held to the overlap of its own eligible window and the one the gardener
+  # chose. Note this constrains only when it goes in: a plant that stands past the end of its
+  # window is fine, because the occupancy check already stops it colliding with whatever comes next.
+  defp narrow_to_pin(%Unit{pinned_range: nil}, from, to), do: {from, to}
+
+  defp narrow_to_pin(%Unit{pinned_range: {pin_from, pin_to}}, from, to),
+    do: {max(from, pin_from), min(to, pin_to)}
 
   defp candidate_areas(areas, %Unit{pinned_area_id: nil}), do: areas
 

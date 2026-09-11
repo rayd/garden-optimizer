@@ -95,6 +95,37 @@ defmodule GardenOptimizer.Scheduling.WeekGrid do
   def week_1_start_date(%__MODULE__{} = grid), do: start_date(grid, grid.start_index)
 
   @doc """
+  Can this plant be planted *and* finish inside `from_index..to_index`?
+
+  This is what decides which plants a free planting block is offered. The plant has to be
+  plantable somewhere in the window, and whatever it occupies has to be out again by the end of
+  it — a window that ends early does so because something else reclaims those squares.
+
+  Continuous harvesters fall out of this on their own: they hold their square until first frost,
+  so they only pass for a window that runs to the end of the season.
+  """
+  @spec plantable_in_window?(t(), Plant.t(), integer(), integer()) :: boolean()
+  def plantable_in_window?(%__MODULE__{} = grid, %Plant{} = plant, from_index, to_index) do
+    {eligible_from, eligible_to} =
+      eligible_range(plant, grid.last_frost_date, grid.first_frost_date)
+
+    earliest = max(eligible_from, from_index)
+    latest = min(eligible_to, to_index)
+
+    # Planting as early as the window allows also clears as early as possible, so if the earliest
+    # option does not finish in time, nothing later will either.
+    earliest <= latest and clears_by(grid, plant, earliest) <= to_index
+  end
+
+  # Deliberately *not* `last_occupied_index/3`: that clamps to the end of the season because a
+  # plant cannot occupy squares past it, which would make a crop needing 400 days look like it
+  # finishes on the last week. Here we are asking whether it matures at all, so it goes unclamped.
+  defp clears_by(%__MODULE__{end_index: e}, %Plant{harvest_type: :continuous}, _index), do: e
+
+  defp clears_by(_grid, %Plant{} = plant, index),
+    do: index + Integer.floor_div(plant.days_to_maturity, 7)
+
+  @doc """
   Last frost index at which a unit planted at `plant_index` still occupies its squares.
 
   Continuous harvesters hold their ground until first frost. One-time harvesters are pulled the

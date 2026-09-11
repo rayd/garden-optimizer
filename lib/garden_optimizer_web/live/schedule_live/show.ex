@@ -9,6 +9,8 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
   use GardenOptimizerWeb, :live_view
 
   alias GardenOptimizer.Gardens
+  alias GardenOptimizer.Plants
+  alias GardenOptimizer.Plants.Importer
   alias GardenOptimizer.Scheduling
 
   @impl true
@@ -29,9 +31,11 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
          |> assign(:page_title, "#{garden.name} schedule")
          |> assign(:schedule, schedule)
          |> assign(:plants_by_unit, plants_by_unit(schedule))
-         |> assign(:free_summary, Scheduling.free_block_summary(schedule))
          |> assign(:unplaced, Scheduling.unplaced_details(schedule))
          |> assign(:legend, legend(schedule))
+         |> assign(:filling, nil)
+         |> assign(:importing, false)
+         |> assign(:free_squares, Scheduling.free_squares_by_bed(schedule))
          |> select_week(first_interesting_week(schedule))}
     end
   end
@@ -46,6 +50,169 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
     {by, _} = Integer.parse(by)
     week = socket.assigns.week + by
     {:noreply, select_week(socket, clamp(week, socket.assigns.schedule.week_count))}
+  end
+
+  def handle_event("fill_block", %{"bed" => bed_id, "from" => from, "to" => to}, socket) do
+    window = {Date.from_iso8601!(from), Date.from_iso8601!(to)}
+    {:noreply, open_sidebar(socket, bed_id, window)}
+  end
+
+  def handle_event("close_fill", _params, socket) do
+    {:noreply, assign(socket, filling: nil, importing: false)}
+  end
+
+  def handle_event(
+        "set_block_quantity",
+        %{"plant-id" => plant_id, "quantity" => quantity},
+        socket
+      ) do
+    case Integer.parse(to_string(quantity)) do
+      {n, _} when n >= 0 -> {:noreply, apply_block_quantity(socket, plant_id, n)}
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("step_block_quantity", %{"plant-id" => plant_id, "by" => by}, socket) do
+    {by, _} = Integer.parse(by)
+    current = Map.get(socket.assigns.filling.quantities, plant_id, 0)
+    {:noreply, apply_block_quantity(socket, plant_id, max(current + by, 0))}
+  end
+
+  def handle_event("import", %{"url" => url}, socket) do
+    url = String.trim(url)
+
+    if url == "" do
+      {:noreply, socket}
+    else
+      {:noreply,
+       socket
+       |> assign(:importing, true)
+       |> start_async(:import, fn -> Plants.import_from_url(url) end)}
+    end
+  end
+
+  @impl true
+  def handle_async(:import, {:ok, {:ok, plant}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:importing, false)
+     |> put_flash(:info, "Added #{plant.variety_name}.")
+     |> refresh_sidebar()}
+  end
+
+  def handle_async(:import, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket |> assign(:importing, false) |> put_flash(:error, Importer.describe_error(reason))}
+  end
+
+  def handle_async(:import, {:exit, _reason}, socket) do
+    {:noreply,
+     socket |> assign(:importing, false) |> put_flash(:error, "That import didn't finish.")}
+  end
+
+  defp apply_block_quantity(socket, plant_id, quantity) do
+    %{filling: filling, garden: garden} = socket.assigns
+    plant = Plants.get_plant!(plant_id)
+
+    case Scheduling.fill_block(garden, plant, filling.group, quantity) do
+      {:ok, schedule} ->
+        socket
+        |> reload_schedule(schedule)
+        |> refresh_sidebar()
+
+      {:error, :no_room} ->
+        put_flash(socket, :error, no_room_message(filling.group, plant))
+
+      {:error, _reason} ->
+        put_flash(socket, :error, "Couldn't update that planting.")
+    end
+  end
+
+  defp no_room_message(group, plant) do
+    case Scheduling.block_capacity(group, plant) do
+      0 ->
+        "#{plant.variety_name} needs more room than these #{pluralize(group.count, "square")} offer."
+
+      max ->
+        "These squares hold at most #{pluralize(max, plant.variety_name)}."
+    end
+  end
+
+  # Re-derives everything downstream of the schedule, keeping the week the gardener was looking at.
+  defp reload_schedule(socket, schedule) do
+    socket
+    |> assign(:schedule, schedule)
+    |> assign(:plants_by_unit, plants_by_unit(schedule))
+    |> assign(:unplaced, Scheduling.unplaced_details(schedule))
+    |> assign(:legend, legend(schedule))
+    |> assign(:free_squares, Scheduling.free_squares_by_bed(schedule))
+    |> select_week(clamp(socket.assigns.week, schedule.week_count))
+  end
+
+  defp open_sidebar(socket, bed_id, window) do
+    case find_group(socket.assigns.free_squares, bed_id, window) do
+      nil -> assign(socket, :filling, nil)
+      {bed, group} -> assign(socket, :filling, build_filling(socket, bed, group))
+    end
+  end
+
+  # After a fill the group has shrunk (or gone), so re-resolve it from the fresh schedule rather
+  # than holding a stale copy.
+  defp refresh_sidebar(%{assigns: %{filling: nil}} = socket), do: socket
+
+  defp refresh_sidebar(socket) do
+    %{filling: filling, free_squares: free_squares} = socket.assigns
+
+    window = {filling.group.start_date, filling.group.window_end_date}
+
+    case find_group(free_squares, filling.growing_area.id, window) do
+      nil ->
+        # Every square in the group is now spoken for; keep the panel open but show it's full.
+        assign(socket, :filling, %{filling | remaining: 0, offered: [], quantities: %{}})
+
+      {bed, group} ->
+        assign(socket, :filling, build_filling(socket, bed, group))
+    end
+  end
+
+  # Identified by its whole window, and by dates rather than week numbers. Both halves matter:
+  # week 1 is defined by the earliest plantable week in the garden, so adding a crop that goes in
+  # earlier renumbers every week; and two sets of squares in one bed can open on the same day yet
+  # close on different ones, which makes them different opportunities with different crops on offer.
+  defp find_group(free_squares, bed_id, {from, to}) do
+    Enum.find_value(free_squares, fn %{growing_area: bed, groups: groups} ->
+      if bed.id == bed_id do
+        case Enum.find(groups, &(&1.start_date == from and &1.window_end_date == to)) do
+          nil -> nil
+          group -> {bed, group}
+        end
+      end
+    end)
+  end
+
+  defp build_filling(socket, bed, group) do
+    garden = socket.assigns.garden
+    garden_plants = Gardens.list_garden_plants(garden)
+    catalog = Plants.list_plants()
+    offered = Scheduling.plantable_in_group(garden, garden_plants, group, catalog)
+
+    garden_totals =
+      garden_plants |> Enum.frequencies_by(& &1.plant_id)
+
+    quantities =
+      Map.new(offered, fn plant ->
+        {plant.id, Scheduling.block_unit_count(garden_plants, plant, group)}
+      end)
+
+    %{
+      growing_area: bed,
+      group: group,
+      offered: offered,
+      quantities: quantities,
+      garden_totals: garden_totals,
+      remaining: group.count,
+      capacities: Map.new(offered, &{&1.id, Scheduling.block_capacity(group, &1)})
+    }
   end
 
   defp clamp(week, week_count), do: week |> max(1) |> min(week_count)
@@ -140,6 +307,8 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
         week_1_start_date={@schedule.week_1_start_date}
       />
 
+      <.free_squares_section free_squares={@free_squares} />
+
       <div class="mt-6 grid gap-6 lg:grid-cols-[1fr_20rem] lg:items-start">
         <div class="space-y-5">
           <.bed_grid
@@ -158,10 +327,220 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
             week={@week}
           />
           <.legend_panel legend={@legend} />
-          <.season_summary summary={@free_summary} week={@week} />
         </div>
       </div>
+
+      <.fill_sidebar :if={@filling} filling={@filling} importing={@importing} />
     </Layouts.app>
+    """
+  end
+
+  ## Free planting squares
+
+  attr :free_squares, :list, required: true
+
+  defp free_squares_section(assigns) do
+    ~H"""
+    <section id="free-squares" class="mt-6 rounded-2xl border border-base-300 bg-base-100">
+      <div class="flex items-baseline justify-between border-b border-base-300 px-5 py-4">
+        <div>
+          <h2 class="text-base font-semibold tracking-tight">Free planting squares</h2>
+          <p class="mt-0.5 text-sm text-base-content/55">
+            Squares sitting empty for five weeks or more — room for another crop.
+          </p>
+        </div>
+        <p class="shrink-0 text-sm text-base-content/50">
+          {total_free(@free_squares)} across {pluralize(length(@free_squares), "bed")}
+        </p>
+      </div>
+
+      <p :if={@free_squares == []} class="px-5 py-8 text-center text-sm text-base-content/55">
+        The garden is fully committed all season — nothing sits empty long enough to plant into.
+      </p>
+
+      <div
+        :for={%{growing_area: bed, groups: groups} <- @free_squares}
+        class="border-b border-base-300 last:border-b-0"
+      >
+        <div class="flex items-baseline justify-between px-5 pt-4">
+          <h3 class="text-sm font-semibold">{bed.name}</h3>
+          <span class="text-xs text-base-content/45">
+            {pluralize(Enum.sum(Enum.map(groups, & &1.count)), "square")} free
+          </span>
+        </div>
+
+        <ul class="divide-y divide-base-300/70 px-5 py-2">
+          <li
+            :for={group <- groups}
+            id={group_dom_id(bed, group)}
+            class="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5"
+          >
+            <span class="w-24 shrink-0 text-lg font-semibold tabular-nums tracking-tight text-sky-700">
+              {group.count}
+              <span class="text-xs font-normal text-base-content/50">
+                {if group.count == 1, do: "square", else: "squares"}
+              </span>
+            </span>
+
+            <span class="min-w-0 flex-1 text-sm">
+              <span class="font-medium">{format_date(group.start_date)}</span>
+              <span class="text-base-content/50">
+                → {format_short_date(group.window_end_date)} · {pluralize(
+                  group.weeks_available,
+                  "week"
+                )} · week {group.start_week}
+              </span>
+            </span>
+
+            <button
+              type="button"
+              phx-click="fill_block"
+              phx-value-bed={bed.id}
+              phx-value-from={group.start_date}
+              phx-value-to={group.window_end_date}
+              class="btn btn-sm btn-outline shrink-0"
+            >
+              <.icon name="hero-sparkles" class="size-3.5" /> Plant these squares
+            </button>
+          </li>
+        </ul>
+      </div>
+    </section>
+    """
+  end
+
+  @doc false
+  def group_dom_id(bed, group), do: "free-#{bed.id}-#{group.start_date}-#{group.window_end_date}"
+
+  defp total_free(free_squares) do
+    free_squares
+    |> Enum.flat_map(& &1.groups)
+    |> Enum.map(& &1.count)
+    |> Enum.sum()
+    |> pluralize("square")
+  end
+
+  ## Fill sidebar
+
+  attr :filling, :map, required: true
+  attr :importing, :boolean, required: true
+
+  defp fill_sidebar(assigns) do
+    ~H"""
+    <div class="fixed inset-0 z-40" id="fill-sidebar">
+      <div class="absolute inset-0 bg-base-content/20" phx-click="close_fill" aria-hidden="true">
+      </div>
+
+      <aside class="absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-base-300 bg-base-100 shadow-xl">
+        <header class="border-b border-base-300 px-5 py-4">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h2 class="text-base font-semibold tracking-tight">
+                Plant {pluralize(@filling.group.count, "square")}
+              </h2>
+              <p class="mt-0.5 text-sm text-base-content/55">
+                {@filling.growing_area.name} · {format_date(@filling.group.start_date)} → {format_short_date(
+                  @filling.group.window_end_date
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              phx-click="close_fill"
+              class="btn btn-ghost btn-sm shrink-0"
+              aria-label="Close"
+            >
+              <.icon name="hero-x-mark" class="size-4" />
+            </button>
+          </div>
+          <p class="mt-2 text-xs text-base-content/50">
+            Only crops that can be planted and finish inside this window are listed.
+          </p>
+        </header>
+
+        <div class="border-b border-base-300 px-5 py-3">
+          <form phx-submit="import" class="flex gap-2">
+            <input
+              type="url"
+              name="url"
+              placeholder="Paste a plant URL to add one"
+              disabled={@importing}
+              autocomplete="off"
+              class="input input-bordered input-sm w-full"
+            />
+            <button type="submit" disabled={@importing} class="btn btn-sm btn-primary shrink-0">
+              <span :if={@importing} class="loading loading-spinner loading-xs"></span>
+              {if @importing, do: "Reading…", else: "Add"}
+            </button>
+          </form>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-y-auto">
+          <p :if={@filling.offered == []} class="px-5 py-10 text-center text-sm text-base-content/55">
+            Nothing in your plant list can finish inside this window. Add a faster crop above.
+          </p>
+
+          <ul class="divide-y divide-base-300">
+            <li :for={plant <- @filling.offered} class="flex items-center gap-3 px-5 py-3.5">
+              <span class={["size-2.5 shrink-0 rounded-full", plant_color(plant.id).bg]}></span>
+
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium">{plant.variety_name}</p>
+                <p class="truncate text-xs text-base-content/55">
+                  {plant.common_type} · {plant.days_to_maturity} days ·
+                  fits {pluralize(@filling.capacities[plant.id], "here")}
+                </p>
+                <p class="truncate text-xs text-base-content/40">
+                  {Map.get(@filling.garden_totals, plant.id, 0)} in the garden
+                </p>
+              </div>
+
+              <div class="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  phx-click="step_block_quantity"
+                  phx-value-plant-id={plant.id}
+                  phx-value-by="-1"
+                  disabled={Map.get(@filling.quantities, plant.id, 0) == 0}
+                  class="btn btn-xs btn-ghost"
+                  aria-label={"One fewer #{plant.variety_name}"}
+                >
+                  <.icon name="hero-minus" class="size-3.5" />
+                </button>
+                <form phx-change="set_block_quantity" id={"block-qty-#{plant.id}"}>
+                  <input type="hidden" name="plant-id" value={plant.id} />
+                  <input
+                    type="number"
+                    name="quantity"
+                    value={Map.get(@filling.quantities, plant.id, 0)}
+                    min="0"
+                    class="input input-bordered input-xs w-14 text-center"
+                    aria-label={"How many #{plant.variety_name} here"}
+                  />
+                </form>
+                <button
+                  type="button"
+                  phx-click="step_block_quantity"
+                  phx-value-plant-id={plant.id}
+                  phx-value-by="1"
+                  disabled={
+                    Map.get(@filling.quantities, plant.id, 0) >= @filling.capacities[plant.id]
+                  }
+                  class="btn btn-xs btn-ghost"
+                  aria-label={"One more #{plant.variety_name}"}
+                >
+                  <.icon name="hero-plus" class="size-3.5" />
+                </button>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <footer class="border-t border-base-300 px-5 py-3">
+          <button type="button" phx-click="close_fill" class="btn btn-sm btn-block">Done</button>
+        </footer>
+      </aside>
+    </div>
     """
   end
 
@@ -415,52 +794,6 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
       </ul>
     </section>
     """
-  end
-
-  attr :summary, :list, required: true
-  attr :week, :integer, required: true
-
-  defp season_summary(assigns) do
-    ~H"""
-    <section class="rounded-2xl border border-base-300 bg-base-100 p-5">
-      <h2 class="text-base font-semibold tracking-tight">Free planting blocks</h2>
-      <p class="mt-1 text-xs text-base-content/55">
-        Squares that sit empty for five weeks or more — room for a second crop.
-      </p>
-
-      <p :if={@summary == []} class="mt-4 text-sm text-base-content/50">
-        The garden is fully committed all season.
-      </p>
-
-      <ul
-        :if={@summary != []}
-        id="free-block-summary"
-        class="mt-4 max-h-72 space-y-0.5 overflow-y-auto pr-1"
-      >
-        <li :for={entry <- @summary}>
-          <button
-            type="button"
-            phx-click="select_week"
-            phx-value-week={entry.week}
-            class={[
-              "flex w-full items-baseline justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left text-sm transition",
-              entry.week == @week && "bg-emerald-600/10 font-medium",
-              entry.week != @week && "hover:bg-base-200"
-            ]}
-          >
-            <span class="truncate">{format_short_date(entry.start_date)}</span>
-            <span class="shrink-0 text-xs text-base-content/55">
-              {entry.count} × {longest(entry.durations)}
-            </span>
-          </button>
-        </li>
-      </ul>
-    </section>
-    """
-  end
-
-  defp longest(durations) do
-    durations |> Enum.map(&elem(&1, 0)) |> Enum.max() |> pluralize("week")
   end
 
   defp group_by_variety(assignments) do

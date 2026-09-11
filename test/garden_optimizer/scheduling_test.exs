@@ -188,14 +188,13 @@ defmodule GardenOptimizer.SchedulingTest do
 
       assert {:ok, schedule} = Scheduling.build(garden)
 
-      summary = Scheduling.free_block_summary(schedule)
-      assert [%{week: 1} | _] = summary
-      assert Enum.sum(Enum.map(summary, & &1.count)) == length(schedule.free_blocks)
+      [%{groups: groups}] = Scheduling.free_squares_by_bed(schedule)
+      assert Enum.sum(Enum.map(groups, & &1.count)) == length(schedule.free_blocks)
 
       # The two radish squares free up together in week 6.
-      week_6 = Enum.find(summary, &(&1.week == 6))
+      week_6 = Enum.find(groups, &(&1.start_week == 6))
       assert week_6.count == 2
-      assert week_6.durations == [{schedule.week_count - 5, 2}]
+      assert week_6.weeks_available == schedule.week_count - 5
     end
   end
 
