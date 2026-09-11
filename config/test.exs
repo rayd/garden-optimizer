@@ -17,7 +17,7 @@ config :garden_optimizer, GardenOptimizer.Repo,
 # you can enable the server option below.
 config :garden_optimizer, GardenOptimizerWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
-  secret_key_base: "hrpkP/+ec2V4+k0Pta870KxqtlPxEuEFheRXyM1NVoQ78FtR/0sTTpYUFvzQ+59a",
+  secret_key_base: "xWriEwqlsD7QKgCPt+Ji8QfrW40J+N0yK41m6+W/Yi8fXfCYkpjZC0dpbZj8YmUo",
   server: false
 
 # In test we don't send emails
@@ -39,3 +39,10 @@ config :phoenix_live_view,
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# No test may touch the network: every HTTP client routes through a Req.Test stub.
+# `retry: false` matters as much as the plug — Req's default backoff would turn each
+# error-path assertion into several seconds of real sleeping.
+config :garden_optimizer, :frost_api,
+  base_url: "https://frost.test/api/v1",
+  req_options: [plug: {Req.Test, GardenOptimizer.FrostStub}, retry: false]

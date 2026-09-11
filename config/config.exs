@@ -20,7 +20,7 @@ config :garden_optimizer, GardenOptimizerWeb.Endpoint,
     layout: false
   ],
   pubsub_server: GardenOptimizer.PubSub,
-  live_view: [signing_salt: "s3LxXei1"]
+  live_view: [signing_salt: "DSPf2UOV"]
 
 # Configure the mailer
 #
@@ -59,6 +59,11 @@ config :logger, :default_formatter,
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
+
+# External service defaults. Overridden per-environment; secrets come from runtime.exs.
+config :garden_optimizer, :frost_api,
+  base_url: "https://apis.joelgrant.dev/api/v1",
+  req_options: []
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
