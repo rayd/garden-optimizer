@@ -39,7 +39,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
   end
 
   @impl true
-  def handle_info({:plant_selected, plant_id}, socket) do
+  def handle_event("plant_selected", %{"plant_id" => plant_id}, socket) do
     # When a plant is selected from the search component, set quantity to 1
     {:noreply, apply_quantity(socket, plant_id, 1)}
   end

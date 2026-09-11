@@ -91,6 +91,12 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
     end
   end
 
+  def handle_event("plant_selected", %{"plant_id" => plant_id}, socket) do
+    # When a plant is selected from the search component in the sidebar,
+    # set quantity to 1 by default for that plant in the current filling block
+    {:noreply, apply_block_quantity(socket, plant_id, 1)}
+  end
+
   @impl true
   def handle_async(:import, {:ok, {:ok, plant}}, socket) do
     {:noreply,
@@ -108,13 +114,6 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
   def handle_async(:import, {:exit, _reason}, socket) do
     {:noreply,
      socket |> assign(:importing, false) |> put_flash(:error, "That import didn't finish.")}
-  end
-
-  @impl true
-  def handle_info({:plant_selected, plant_id}, socket) do
-    # When a plant is selected from the search component in the sidebar,
-    # set quantity to 1 by default for that plant in the current filling block
-    {:noreply, apply_block_quantity(socket, plant_id, 1)}
   end
 
   defp apply_block_quantity(socket, plant_id, quantity) do
