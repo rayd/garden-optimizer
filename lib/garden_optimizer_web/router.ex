@@ -8,6 +8,8 @@ defmodule GardenOptimizerWeb.Router do
     plug :put_root_layout, html: {GardenOptimizerWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug :fetch_query_params
+    plug GardenOptimizerWeb.Plugs.AccessCode
     plug GardenOptimizerWeb.Plugs.Visitor
   end
 

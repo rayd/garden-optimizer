@@ -13,9 +13,20 @@ defmodule GardenOptimizerWeb.VisitorHook do
 
   alias GardenOptimizer.Visitors
   alias GardenOptimizer.Visitors.Scope
+  alias GardenOptimizerWeb.Plugs.AccessCode
   alias GardenOptimizerWeb.Plugs.Visitor
 
   def on_mount(:default, _params, session, socket) do
+    # A websocket connect never runs the browser pipeline — it is handed the session and nothing
+    # else — so the access gate has to be re-checked here or it is trivially routed around.
+    if AccessCode.granted?(session) do
+      assign_scope(session, socket)
+    else
+      {:halt, redirect(socket, to: "/")}
+    end
+  end
+
+  defp assign_scope(session, socket) do
     case session[Visitor.session_key()] do
       token when is_binary(token) ->
         if Visitors.valid_token?(token) do
