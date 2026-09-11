@@ -388,13 +388,13 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
             <p :if={Phoenix.Component.used_input?(@area_form[:width_in]) and @area_form[:width_in].errors != []} class="flex gap-2 items-start text-sm text-error">
               <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
               <span>
-                {Enum.map_join(@area_form[:width_in].errors, ", ", &translate_error/1)}
+                <strong>Width (in):</strong> {Enum.map_join(@area_form[:width_in].errors, ", ", &translate_error/1)}
               </span>
             </p>
             <p :if={Phoenix.Component.used_input?(@area_form[:length_in]) and @area_form[:length_in].errors != []} class="flex gap-2 items-start text-sm text-error">
               <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
               <span>
-                {Enum.map_join(@area_form[:length_in].errors, ", ", &translate_error/1)}
+                <strong>Length (in):</strong> {Enum.map_join(@area_form[:length_in].errors, ", ", &translate_error/1)}
               </span>
             </p>
           </div>
