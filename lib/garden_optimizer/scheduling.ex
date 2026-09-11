@@ -366,25 +366,6 @@ defmodule GardenOptimizer.Scheduling do
     Enum.filter(plants, &WeekGrid.plantable_in_window?(grid, &1, from, to))
   end
 
-  @doc """
-  Free blocks starting in each week, as `{week, count, durations}` ordered by week.
-
-  This is the "how many opportunities open up, and for how long" summary.
-  """
-  def free_block_summary(%Schedule{free_blocks: blocks}) do
-    blocks
-    |> Enum.group_by(& &1.start_week)
-    |> Enum.map(fn {week, weekly} ->
-      %{
-        week: week,
-        start_date: List.first(weekly).start_date,
-        count: length(weekly),
-        durations: weekly |> Enum.map(& &1.weeks_available) |> Enum.frequencies() |> Enum.sort()
-      }
-    end)
-    |> Enum.sort_by(& &1.week)
-  end
-
   @doc "Plant units the algorithm could not place, with a human-readable reason."
   def unplaced_details(%Schedule{unplaced: unplaced} = schedule) do
     ids = Map.keys(unplaced)

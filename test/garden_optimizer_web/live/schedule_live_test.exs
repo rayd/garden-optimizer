@@ -164,7 +164,11 @@ defmodule GardenOptimizerWeb.ScheduleLiveTest do
     assert html =~ "Week #{schedule.week_count - 1} of #{schedule.week_count}"
   end
 
-  test "the season summary jumps to the week a block opens", %{conn: conn, garden: garden} do
+  test "free squares are listed per bed with count, duration and date", %{
+    conn: conn,
+    garden: garden,
+    bed: bed
+  } do
     radish =
       plant_fixture(
         sq_in: 36,
@@ -174,15 +178,25 @@ defmodule GardenOptimizerWeb.ScheduleLiveTest do
         anchor_offset_weeks_max: 0
       )
 
-    with_schedule(garden, [{radish, 1}])
-    {:ok, view, _html} = live(conn, ~p"/gardens/#{garden}/schedule")
+    schedule = with_schedule(garden, [{radish, 2}])
+    {:ok, _view, html} = live(conn, ~p"/gardens/#{garden}/schedule")
 
-    html =
-      view
-      |> element(~s{#free-block-summary button[phx-value-week="6"]})
-      |> render_click()
+    assert html =~ "Free planting squares"
+    assert html =~ bed.name
+    assert html =~ "Plant these squares"
 
-    assert html =~ "Week 6 of"
+    # Two opportunities: the 126 squares nothing ever touches, and the two the radishes vacate.
+    groups =
+      schedule |> GardenOptimizer.Scheduling.free_squares_by_bed() |> Enum.flat_map(& &1.groups)
+
+    assert length(groups) == 2
+
+    for group <- groups do
+      assert html =~ GardenOptimizerWeb.ScheduleLive.Show.group_dom_id(bed, group)
+      assert html =~ format_date(group.start_date)
+    end
+
+    assert html =~ "#{schedule.week_count - 5} weeks"
   end
 
   test "plants that couldn't be placed are called out", %{conn: conn, garden: garden} do
