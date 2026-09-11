@@ -176,7 +176,10 @@ defmodule GardenOptimizerWeb.CoreComponents do
   attr :multiple, :boolean, default: false, doc: "the multiple flag for select inputs"
   attr :class, :any, default: nil, doc: "the input class to use over defaults"
   attr :error_class, :any, default: nil, doc: "the input error class to use over defaults"
-  attr :show_errors, :boolean, default: true, doc: "whether to display validation errors below the input"
+
+  attr :show_errors, :boolean,
+    default: true,
+    doc: "whether to display validation errors below the input"
 
   attr :rest, :global,
     include: ~w(accept autocomplete capture cols disabled form list max maxlength min minlength
@@ -227,7 +230,7 @@ defmodule GardenOptimizerWeb.CoreComponents do
           />{@label}
         </span>
       </label>
-      <.error :if={@show_errors} :for={msg <- @errors}>{msg}</.error>
+      <.error :for={msg <- @errors} :if={@show_errors}>{msg}</.error>
     </div>
     """
   end
@@ -248,7 +251,7 @@ defmodule GardenOptimizerWeb.CoreComponents do
           {Phoenix.HTML.Form.options_for_select(@options, @value)}
         </select>
       </label>
-      <.error :if={@show_errors} :for={msg <- @errors}>{msg}</.error>
+      <.error :for={msg <- @errors} :if={@show_errors}>{msg}</.error>
     </div>
     """
   end
@@ -268,7 +271,7 @@ defmodule GardenOptimizerWeb.CoreComponents do
           {@rest}
         >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
       </label>
-      <.error :if={@show_errors} :for={msg <- @errors}>{msg}</.error>
+      <.error :for={msg <- @errors} :if={@show_errors}>{msg}</.error>
     </div>
     """
   end
@@ -291,7 +294,7 @@ defmodule GardenOptimizerWeb.CoreComponents do
           {@rest}
         />
       </label>
-      <.error :if={@show_errors} :for={msg <- @errors}>{msg}</.error>
+      <.error :for={msg <- @errors} :if={@show_errors}>{msg}</.error>
     </div>
     """
   end
