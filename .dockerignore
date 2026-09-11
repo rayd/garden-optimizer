@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+
+# Node
+node_modules
+npm-debug.log
+
+# Elixir/OTP
+_build
+deps
+*.beam
+erl_crash.dump
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*.sw*
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Development
+.env.local
+.env.*.local
+priv/static
+
+# Test coverage
+cover
+
+# Claude Code
+.claude
+
+# Docker
+Dockerfile
+.dockerignore
+
+# CI/CD
+.github
+
+# Documentation
+README.md
+LICENSE
+docs/
+
+# Misc
+*.log
+.tool-versions

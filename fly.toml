@@ -1,0 +1,52 @@
+# fly.toml app configuration file generated for garden-optimizer
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+
+app = "garden-optimizer"
+primary_region = "sjc"
+
+[build]
+  image = "garden-optimizer:latest"
+
+[build.args]
+  ELIXIR_VERSION = "1.20"
+  OTP_VERSION = "29"
+  DEBIAN_VERSION = "trixie"
+
+[env]
+  LOG_LEVEL = "info"
+  POOL_SIZE = "10"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 4000
+  processes = ["app"]
+
+  [[services.ports]]
+    number = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    number = 443
+    handlers = ["tls", "http"]
+
+[checks]
+  [checks.alive]
+    type = "http"
+    interval = "10s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/"
+
+[vm]
+  cpus = 1
+  cpu_kind = "shared"
+  memory_mb = 256
