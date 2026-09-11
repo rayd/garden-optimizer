@@ -132,10 +132,12 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
 
   @impl true
   def handle_async(:import, {:ok, {:ok, plant}}, socket) do
+    # Set quantity to 1 by default when a plant is imported
+    _ = Gardens.set_plant_quantity(socket.assigns.garden, plant, 1)
+
     {:noreply,
      socket
      |> assign(importing: false, import_url: "")
-     |> put_flash(:info, "Added #{plant.variety_name}. Set how many you want.")
      |> reload()}
   end
 
