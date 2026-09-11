@@ -8,6 +8,7 @@ defmodule GardenOptimizer.Fixtures do
   alias GardenOptimizer.Gardens.GrowingArea
   alias GardenOptimizer.Plants
   alias GardenOptimizer.Plants.Plant
+  alias GardenOptimizer.Scheduling.{Area, Unit}
 
   @doc "An unsaved plant struct — enough for the pure algorithm, which never touches the repo."
   def plant(attrs \\ %{}) do
@@ -24,6 +25,25 @@ defmodule GardenOptimizer.Fixtures do
     }
 
     struct!(Plant, Map.merge(defaults, Map.new(attrs)))
+  end
+
+  @doc "A plain grid area, e.g. `area(rows: 16, cols: 8)` for a 4' x 8' bed."
+  def area(attrs \\ []) do
+    struct!(
+      %Area{id: Ecto.UUID.generate(), rows: 16, cols: 8, name: "Bed"},
+      Map.new(attrs)
+    )
+  end
+
+  @doc "`count` placement units of the same plant."
+  def units(plant, count, opts \\ []) do
+    for _ <- 1..count//1 do
+      %Unit{
+        id: Ecto.UUID.generate(),
+        plant: plant,
+        pinned_area_id: Keyword.get(opts, :pinned_area_id)
+      }
+    end
   end
 
   ## Persisted fixtures
