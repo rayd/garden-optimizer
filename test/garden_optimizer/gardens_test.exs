@@ -180,24 +180,27 @@ defmodule GardenOptimizer.GardensTest do
                Gardens.set_plant_quantity(garden_fixture(), plant, 1)
     end
 
-    test "the catalog lists every plant, chosen ones first", %{garden: garden, plant: plant} do
+    test "lists only the plants this garden holds, alphabetically", %{
+      garden: garden,
+      plant: plant
+    } do
       lettuce = plant_fixture(variety_name: "Buttercrunch", common_type: "lettuce", sq_in: 36)
       unused = plant_fixture(variety_name: "Detroit Red", common_type: "beet", sq_in: 16)
       {:ok, 3} = Gardens.set_plant_quantity(garden, plant, 3)
       {:ok, 8} = Gardens.set_plant_quantity(garden, lettuce, 8)
 
-      # A plant with no units still appears, so there is something to set a quantity on after
-      # importing it — but it sorts below the ones already chosen.
-      assert [{^lettuce, 8}, {^plant, 3}, {^unused, 0}] = Gardens.plant_quantities(garden)
-      assert [{^lettuce, 8}, {^plant, 3}] = Gardens.chosen_plant_quantities(garden)
+      # Ordered by common type then variety: lettuce before tomato. A plant nobody has chosen is
+      # absent entirely rather than listed at zero.
+      assert [{^lettuce, 8}, {^plant, 3}] = Gardens.plant_quantities(garden)
+      refute Enum.any?(Gardens.plant_quantities(garden), &(elem(&1, 0).id == unused.id))
     end
 
-    test "a plant chosen in another garden shows here with a quantity of zero", %{plant: plant} do
+    test "a plant chosen in another garden does not appear in this one", %{plant: plant} do
       other = garden_fixture(name: "Front yard")
       growing_area_fixture(other, width_in: 48, length_in: 96)
       {:ok, 2} = Gardens.set_plant_quantity(other, plant, 2)
 
-      assert [{^plant, 0}] = Gardens.plant_quantities(garden_fixture(name: "Empty"))
+      assert Gardens.plant_quantities(garden_fixture(name: "Empty")) == []
     end
   end
 

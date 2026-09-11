@@ -252,9 +252,11 @@ defmodule GardenOptimizerWeb.GardenLiveTest do
     test "quantity steppers move the capacity meter", %{conn: conn, garden: garden} do
       growing_area_fixture(garden, width_in: 48, length_in: 96)
       plant = plant_fixture(sq_in: 324)
+      {:ok, 1} = Gardens.set_plant_quantity(garden, plant, 1)
 
       {:ok, view, html} = live(conn, ~p"/gardens/#{garden}")
-      assert html =~ "0.0"
+      # One tomato reserves 9 of 128 squares.
+      assert html =~ "7.0"
 
       html =
         view
@@ -263,14 +265,14 @@ defmodule GardenOptimizerWeb.GardenLiveTest do
         )
         |> render_click()
 
-      # One tomato reserves 9 of 128 squares.
-      assert html =~ "7.0"
-      assert [{^plant, 1}] = Gardens.plant_quantities(garden)
+      assert html =~ "14.1"
+      assert [{^plant, 2}] = Gardens.plant_quantities(garden)
     end
 
     test "typing a quantity sets it directly", %{conn: conn, garden: garden} do
       growing_area_fixture(garden, width_in: 48, length_in: 96)
       plant = plant_fixture(sq_in: 36)
+      {:ok, 1} = Gardens.set_plant_quantity(garden, plant, 1)
 
       {:ok, view, _html} = live(conn, ~p"/gardens/#{garden}")
 
