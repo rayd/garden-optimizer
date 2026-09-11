@@ -355,11 +355,11 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
           phx-submit="add_area"
           class="mt-4"
         >
-          <div class="flex flex-wrap items-end gap-3">
-            <div class="w-40">
+          <div class="flex flex-wrap items-start gap-3">
+            <div class="w-40 pt-0">
               <.input field={@area_form[:name]} label="Name" placeholder="Bed 1" autocomplete="off" />
             </div>
-            <div class="w-28">
+            <div class="w-28 pt-0">
               <.input
                 field={@area_form[:width_in]}
                 type="number"
@@ -368,7 +368,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
                 step="6"
               />
             </div>
-            <div class="w-28">
+            <div class="w-28 pt-0">
               <.input
                 field={@area_form[:length_in]}
                 type="number"
@@ -377,10 +377,27 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
                 step="6"
               />
             </div>
-            <.button class="btn btn-outline">Add bed</.button>
+            <div class="flex items-end pt-0">
+              <.button class="btn btn-outline h-12">Add bed</.button>
+            </div>
           </div>
 
-          <p class="mt-2 text-xs text-base-content/50">
+          <div class="min-h-6 mt-1">
+            <p :if={@area_form[:width_in].errors != []} class="flex gap-2 items-start text-sm text-error">
+              <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
+              <span>
+                {Enum.map_join(@area_form[:width_in].errors, ", ", &translate_error/1)}
+              </span>
+            </p>
+            <p :if={@area_form[:length_in].errors != []} class="flex gap-2 items-start text-sm text-error">
+              <.icon name="hero-exclamation-circle" class="size-5 shrink-0 mt-0.5" />
+              <span>
+                {Enum.map_join(@area_form[:length_in].errors, ", ", &translate_error/1)}
+              </span>
+            </p>
+          </div>
+
+          <p class="mt-3 text-xs text-base-content/50">
             <span :if={@area_preview}>{@area_preview}</span>
             <span :if={is_nil(@area_preview)}>
               Beds are planned in 6″ squares, so both dimensions step by 6.
