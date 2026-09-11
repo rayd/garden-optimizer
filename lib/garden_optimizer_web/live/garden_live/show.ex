@@ -38,6 +38,12 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
      |> reload()}
   end
 
+  @impl true
+  def handle_event("plant_selected", %{"plant_id" => plant_id}, socket) do
+    # When a plant is selected from the search component, set quantity to 1
+    {:noreply, apply_quantity(socket, plant_id, 1)}
+  end
+
   ## Growing areas
 
   @impl true
@@ -473,28 +479,45 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
       <div class="border-b border-base-300 px-5 py-4">
         <h2 class="text-base font-semibold tracking-tight">Plants</h2>
         <p class="mt-0.5 text-sm text-base-content/55">
-          Paste a link to a seed or plant page and we'll read the growing details from it.
+          Search existing plants or paste a link to import new ones.
         </p>
       </div>
 
-      <div class="px-5 py-4">
-        <form phx-submit="import" class="flex gap-2">
-          <input
-            type="url"
-            name="url"
-            placeholder="https://www.example-seeds.com/cherokee-purple-tomato"
-            disabled={@importing}
-            autocomplete="off"
-            class="input input-bordered w-full"
+      <div class="space-y-4 border-b border-base-300 px-5 py-4">
+        <div>
+          <label class="text-xs font-semibold text-base-content/70 uppercase tracking-wide block mb-2">
+            Search plants
+          </label>
+          <.live_component
+            module={GardenOptimizerWeb.PlantSearchComponent}
+            id="add-plant-search"
+            placeholder="Search by plant name or type..."
+            input_size="input-sm"
           />
-          <button type="submit" disabled={@importing} class="btn btn-primary whitespace-nowrap">
-            <span :if={@importing} class="loading loading-spinner loading-xs"></span>
-            {if @importing, do: "Reading…", else: "Add plant"}
-          </button>
-        </form>
-        <p :if={@importing} class="mt-2 text-xs text-base-content/50">
-          Fetching the page and reading its growing instructions — this takes a few seconds.
-        </p>
+        </div>
+
+        <div>
+          <label class="text-xs font-semibold text-base-content/70 uppercase tracking-wide block mb-2">
+            Or import from URL
+          </label>
+          <form phx-submit="import" class="flex gap-2">
+            <input
+              type="url"
+              name="url"
+              placeholder="https://www.example-seeds.com/cherokee-purple-tomato"
+              disabled={@importing}
+              autocomplete="off"
+              class="input input-bordered input-sm w-full"
+            />
+            <button type="submit" disabled={@importing} class="btn btn-primary btn-sm whitespace-nowrap">
+              <span :if={@importing} class="loading loading-spinner loading-xs"></span>
+              {if @importing, do: "Reading…", else: "Add"}
+            </button>
+          </form>
+          <p :if={@importing} class="mt-2 text-xs text-base-content/50">
+            Fetching the page and reading its growing instructions — this takes a few seconds.
+          </p>
+        </div>
       </div>
 
       <div

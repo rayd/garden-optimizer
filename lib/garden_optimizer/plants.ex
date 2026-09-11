@@ -16,6 +16,28 @@ defmodule GardenOptimizer.Plants do
     Repo.all(from p in Plant, order_by: [asc: p.common_type, asc: p.variety_name])
   end
 
+  @doc """
+  Search plants by common_type and variety_name.
+
+  Searches are case-insensitive substring matches on either field. Results are
+  alphabetically sorted by common_type then variety_name. An empty query returns all plants.
+  """
+  def search_plants(query) do
+    query = String.trim(query)
+
+    if query == "" do
+      list_plants()
+    else
+      pattern = "%#{query}%"
+
+      Repo.all(
+        from p in Plant,
+          where: ilike(p.common_type, ^pattern) or ilike(p.variety_name, ^pattern),
+          order_by: [asc: p.common_type, asc: p.variety_name]
+      )
+    end
+  end
+
   def get_plant!(id), do: Repo.get!(Plant, id)
 
   def get_plant_by_source_url(url), do: Repo.get_by(Plant, source_url: url)
