@@ -366,6 +366,7 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
                 label="Width (in)"
                 min="6"
                 step="6"
+                errors={[]}
               />
             </div>
             <div class="w-28 pt-0">
@@ -375,9 +376,10 @@ defmodule GardenOptimizerWeb.GardenLive.Show do
                 label="Length (in)"
                 min="6"
                 step="6"
+                errors={[]}
               />
             </div>
-            <div class="flex items-end pt-0">
+            <div class="flex self-center items-end pt-0">
               <.button class="btn btn-outline h-12">Add bed</.button>
             </div>
           </div>
