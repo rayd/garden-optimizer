@@ -64,6 +64,24 @@ mix test        # no test touches the network — both HTTP clients use Req.Test
 mix precommit   # warnings-as-errors, unused deps, format, test
 ```
 
+## Filling free squares
+
+The schedule page lists free planting squares per bed, and each opportunity can be filled in place.
+Picking one opens a sidebar offering only crops that can be planted *and* finish inside that window
+— `WeekGrid.plantable_in_window?/4` — which is why continuous harvesters appear only for windows
+running to first frost: they hold their square until then, so a window something else reclaims
+genuinely cannot take them.
+
+Filling pins the unit to the **bed and the window**, not to the individual squares, and stores that
+on `garden_plants` alongside an `origin` recording that a person chose it. The placer then re-solves
+normally, so there is one placement code path and the choice survives a re-build. Two consequences
+worth knowing:
+
+- Plants land in whichever squares of that bed are free during the window, which may not be the
+  exact ones listed in the row you clicked. The row's count is still the cap.
+- The cap is the area of those squares, deliberately — the window alone would let a fast crop be
+  succession-planted through the whole bed for the rest of the season.
+
 ## Known limitations
 
 - Bed dimensions must be whole multiples of 6″, enforced in the changeset *and* by a database
