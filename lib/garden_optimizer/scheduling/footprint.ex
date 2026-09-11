@@ -8,9 +8,8 @@ defmodule GardenOptimizer.Scheduling.Footprint do
       shares the remainder with other small plants. Four radishes at 9 sq_in fit in one square,
       which is the whole point of square-foot gardening.
 
-    * `{:block, w, h}` — needs more than one square, so it claims a `w x h` rectangle
-      exclusively. The rectangle is chosen as close to square as possible, which may round up:
-      a plant needing 3 squares takes a 2x2 and wastes one.
+    * `{:block, n, n}` — needs more than one square, so it claims an `n x n` square block
+      exclusively, which may round up: a plant needing 3 squares takes a 2x2 and wastes one.
   """
 
   @square_in GardenOptimizer.Gardens.GrowingArea.square_in()
@@ -24,9 +23,13 @@ defmodule GardenOptimizer.Scheduling.Footprint do
   @doc """
   Footprint for a plant of `sq_in` square inches.
 
+  Plants exceeding one square always occupy an n × n square block.
+
       iex> Footprint.for_sq_in(9)
       {:shared, 9}
       iex> Footprint.for_sq_in(324)
+      {:block, 3, 3}
+      iex> Footprint.for_sq_in(100)
       {:block, 3, 3}
   """
   @spec for_sq_in(pos_integer()) :: t()
@@ -35,8 +38,8 @@ defmodule GardenOptimizer.Scheduling.Footprint do
       {:shared, sq_in}
     else
       squares = ceil_div(sq_in, @square_capacity)
-      w = ceil_sqrt(squares)
-      {:block, w, ceil_div(squares, w)}
+      n = ceil_sqrt(squares)
+      {:block, n, n}
     end
   end
 
