@@ -55,23 +55,43 @@ defmodule GardenOptimizer.Scheduling do
 
   defp do_build(garden, growing_areas, garden_plants, strategy) do
     areas = Enum.map(growing_areas, &Area.from_schema/1)
-
-    units =
-      Enum.map(garden_plants, fn gp ->
-        %Unit{id: gp.id, plant: gp.plant, pinned_area_id: gp.growing_area_id}
-      end)
-
-    grid =
-      WeekGrid.new(
-        garden.last_frost_date,
-        garden.first_frost_date,
-        Enum.map(garden_plants, & &1.plant)
-      )
+    grid = week_grid(garden, garden_plants)
+    units = Enum.map(garden_plants, &to_unit(&1, grid))
 
     {placements, occupancy, unplaced} = strategy.assign(grid, areas, units)
     free_blocks = FreeBlocks.detect(grid, areas, occupancy)
 
     persist(garden, grid, placements, free_blocks, unplaced)
+  end
+
+  @doc """
+  The week grid for a garden, given the plants that will go in it.
+
+  Exposed because filling a free block has to reason about weeks before anything is written.
+  """
+  def week_grid(%Garden{} = garden, garden_plants) do
+    WeekGrid.new(
+      garden.last_frost_date,
+      garden.first_frost_date,
+      Enum.map(garden_plants, & &1.plant)
+    )
+  end
+
+  # A stored pin is a pair of dates; the pure core works in frost-relative week indices.
+  defp to_unit(garden_plant, grid) do
+    %Unit{
+      id: garden_plant.id,
+      plant: garden_plant.plant,
+      pinned_area_id: garden_plant.growing_area_id,
+      pinned_range: pinned_range(garden_plant, grid)
+    }
+  end
+
+  defp pinned_range(%{planting_window_start: nil}, _grid), do: nil
+
+  defp pinned_range(%{planting_window_start: from, planting_window_end: to}, grid) do
+    {WeekGrid.frost_index(grid.last_frost_date, from),
+     WeekGrid.frost_index(grid.last_frost_date, to)}
   end
 
   defp persist(garden, grid, placements, free_blocks, unplaced) do
@@ -228,6 +248,9 @@ defmodule GardenOptimizer.Scheduling do
 
   defp describe_reason("outside_season"),
     do: "its planting window falls outside the growing season"
+
+  defp describe_reason("outside_window"),
+    do: "nothing could be planted in the window it's pinned to"
 
   defp describe_reason("no_growing_area"), do: "the bed it's pinned to no longer exists"
   defp describe_reason(_), do: "it could not be placed"
