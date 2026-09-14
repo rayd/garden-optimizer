@@ -121,20 +121,29 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
         |> refresh_sidebar()
 
       {:error, :no_room} ->
-        put_flash(socket, :error, no_room_message(filling.group, plant))
+        put_flash(socket, :error, no_room_message(filling, plant, quantity))
 
       {:error, _reason} ->
         put_flash(socket, :error, "Couldn't update that planting.")
     end
   end
 
-  defp no_room_message(group, plant) do
-    case Scheduling.block_capacity(group, plant) do
-      0 ->
+  defp no_room_message(%{group: group} = filling, plant, quantity) do
+    capacity = Map.get(filling.capacities, plant.id, 0)
+
+    cond do
+      Scheduling.block_capacity(group, plant, []) == 0 ->
         "#{plant.variety_name} needs more room than these #{pluralize(group.count, "square")} offer."
 
-      max ->
-        "These squares hold at most #{pluralize(max, plant.variety_name)}."
+      capacity == 0 ->
+        "There's no room left in these squares for #{plant.variety_name}."
+
+      quantity > capacity ->
+        "These squares hold at most #{pluralize(capacity, plant.variety_name)}."
+
+      # Within the area cap, but the rectangles don't pack.
+      true ->
+        "These squares can't fit #{pluralize(quantity, plant.variety_name)}."
     end
   end
 
@@ -156,23 +165,14 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
     end
   end
 
-  # After a fill the group has shrunk (or gone), so re-resolve it from the fresh schedule rather
-  # than holding a stale copy.
+  # The sidebar stays scoped to the squares that were clicked, even as filling them shrinks that row
+  # or removes it from the list behind. Re-resolving the group would drop the units already planted
+  # out of scope, so they could no longer be stepped back down or counted against the cap.
   defp refresh_sidebar(%{assigns: %{filling: nil}} = socket), do: socket
 
   defp refresh_sidebar(socket) do
-    %{filling: filling, free_squares: free_squares} = socket.assigns
-
-    window = {filling.group.start_date, filling.group.window_end_date}
-
-    case find_group(free_squares, filling.growing_area.id, window) do
-      nil ->
-        # Every square in the group is now spoken for; keep the panel open but show it's full.
-        assign(socket, :filling, %{filling | remaining: 0, offered: [], quantities: %{}})
-
-      {bed, group} ->
-        assign(socket, :filling, build_filling(socket, bed, group))
-    end
+    %{filling: filling} = socket.assigns
+    assign(socket, :filling, build_filling(socket, filling.growing_area, filling.group))
   end
 
   # Identified by its whole window, and by dates rather than week numbers. Both halves matter:
@@ -210,9 +210,23 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
       offered: offered,
       quantities: quantities,
       garden_totals: garden_totals,
-      remaining: group.count,
-      capacities: Map.new(offered, &{&1.id, Scheduling.block_capacity(group, &1)})
+      remaining: still_free(socket.assigns.free_squares, bed, group),
+      capacities: Map.new(offered, &{&1.id, Scheduling.block_capacity(group, &1, garden_plants)})
     }
+  end
+
+  # How many of the clicked squares are still free for the whole of that window.
+  defp still_free(free_squares, bed, group) do
+    clicked = MapSet.new(group.squares)
+
+    free_squares
+    |> Enum.filter(&(&1.growing_area.id == bed.id))
+    |> Enum.flat_map(& &1.groups)
+    |> Enum.filter(
+      &(&1.start_date == group.start_date and &1.window_end_date == group.window_end_date)
+    )
+    |> Enum.flat_map(& &1.squares)
+    |> Enum.count(&MapSet.member?(clicked, &1))
   end
 
   defp clamp(week, week_count), do: week |> max(1) |> min(week_count)
@@ -453,7 +467,11 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
               <.icon name="hero-x-mark" class="size-4" />
             </button>
           </div>
-          <p class="mt-2 text-xs text-base-content/50">
+          <p id="fill-remaining" class="mt-2 text-sm">
+            <span class="font-medium tabular-nums">{@filling.remaining}</span>
+            <span class="text-base-content/55">of {@filling.group.count} still free</span>
+          </p>
+          <p class="mt-1 text-xs text-base-content/50">
             Only crops that can be planted and finish inside this window are listed.
           </p>
         </header>

@@ -85,9 +85,17 @@ defmodule GardenOptimizer.Scheduling do
       id: garden_plant.id,
       plant: garden_plant.plant,
       pinned_area_id: garden_plant.growing_area_id,
-      pinned_range: pinned_range(garden_plant, grid)
+      pinned_range: pinned_range(garden_plant, grid),
+      pinned_cells: pinned_cells(garden_plant)
     }
   end
+
+  defp pinned_cells(%{planting_cells: nil}), do: nil
+
+  defp pinned_cells(%{planting_cells: cells}),
+    do: MapSet.new(cells, &{&1["row"], &1["col"]})
+
+  defp cell_map({r, c}), do: %{"row" => r, "col" => c}
 
   defp pinned_range(%{planting_window_start: nil}, _grid), do: nil
 
@@ -139,7 +147,7 @@ defmodule GardenOptimizer.Scheduling do
       last_week: last_week,
       # The square frees up the week *after* the plant's last standing week.
       removal_date: WeekGrid.start_date(grid, placement.last_index + 1),
-      cells: Enum.map(placement.cells, fn {r, c} -> %{"row" => r, "col" => c} end),
+      cells: Enum.map(placement.cells, &cell_map/1),
       inserted_at: now,
       updated_at: now
     }
@@ -166,65 +174,91 @@ defmodule GardenOptimizer.Scheduling do
   arithmetic and tells the truth about rectangle packing — 24 free squares will not take two
   tomatoes if no 3x3 of them is contiguous.
 
-  Only rows this feature created are reconciled, so a stepper here can never delete a unit the
-  gardener added from the workbench.
+  Each new unit is pinned to the exact squares the dry run gave it, not just to the bed, so what the
+  gardener fills stays where it went: the next unit takes the next free square, and a re-build puts
+  everything back in the same place. The dry run picks those squares from the group's own, so
+  nothing lands in some other part of the bed.
+
+  Only rows this feature created in these squares are reconciled, so a stepper here can never
+  delete a unit the gardener added from the workbench.
   """
   @spec fill_block(Garden.t(), Plant.t(), map(), non_neg_integer(), keyword()) ::
           {:ok, Schedule.t()} | {:error, atom()}
   def fill_block(%Garden{} = garden, %Plant{} = plant, group, quantity, opts \\ [])
       when is_integer(quantity) and quantity >= 0 do
     strategy = Keyword.get(opts, :strategy, @default_strategy)
-    growing_areas = Gardens.list_growing_areas(garden)
     existing = Gardens.list_garden_plants(garden)
-    current = Enum.count(existing, &block_fill_unit?(&1, plant, group))
+    mine = Enum.filter(existing, &block_fill_unit?(&1, plant, group))
+    current = length(mine)
 
     cond do
       quantity == current ->
         {:ok, get_schedule(garden)}
 
       quantity < current ->
-        do_fill(garden, plant, group, quantity, current)
+        # Units come back oldest first, so the tail is what was added last — a clean undo.
+        doomed = mine |> Enum.take(quantity - current) |> Enum.map(& &1.id)
+        Gardens.delete_garden_plants(garden, doomed)
+        build(garden)
 
-      quantity > block_capacity(group, plant) ->
+      quantity > block_capacity(group, plant, existing) ->
         {:error, :no_room}
 
       true ->
-        add_to_block(garden, plant, group, quantity, current, existing, growing_areas, strategy)
+        add_to_block(garden, plant, group, quantity - current, existing, strategy)
     end
   end
 
   @doc """
-  The most units of `plant` that fit in a free-square group, measured against those squares.
+  The most units of `plant` that fit in a free-square group, measured against those squares and
+  whatever other crops have already been planted into them.
 
   This is the cap the sidebar enforces, and it is deliberately the *area of the squares you
-  clicked* rather than everything the pinned window could absorb. The pin is a window, so without
-  this the placer would happily succession-plant a fast crop through the whole bed for the rest of
-  the season — 500 lettuces into an opportunity described as "4 squares".
+  clicked* rather than everything the pinned window could absorb. Without it the placer would
+  happily succession-plant a fast crop through those squares for the rest of the season — 500
+  lettuces into an opportunity described as "4 squares".
   """
-  @spec block_capacity(map(), Plant.t()) :: non_neg_integer()
-  def block_capacity(group, %Plant{} = plant) do
-    per_unit = Footprint.reserved_sq_in(Footprint.for_sq_in(plant.sq_in))
-    div(group.count * Footprint.square_capacity(), per_unit)
+  @spec block_capacity(map(), Plant.t(), [GardenPlant.t()]) :: non_neg_integer()
+  def block_capacity(group, %Plant{} = plant, garden_plants) do
+    taken =
+      garden_plants
+      |> Enum.filter(&(&1.plant_id != plant.id and in_block?(&1, group)))
+      |> Enum.map(&reserved_sq_in(&1.plant))
+      |> Enum.sum()
+
+    max(div(group.count * Footprint.square_capacity() - taken, reserved_sq_in(plant)), 0)
   end
 
-  defp add_to_block(garden, plant, group, quantity, current, existing, growing_areas, strategy) do
-    added = quantity - current
+  defp reserved_sq_in(plant), do: Footprint.reserved_sq_in(Footprint.for_sq_in(plant.sq_in))
+
+  defp add_to_block(garden, plant, group, added, existing, strategy) do
+    areas = garden |> Gardens.list_growing_areas() |> Enum.map(&Area.from_schema/1)
     # Stand-in ids: the dry run only needs to know which units are new.
     new_ids = for _ <- 1..added//1, do: Ecto.UUID.generate()
     prospective = existing ++ Enum.map(new_ids, &prospective_row(&1, garden, plant, group))
-    grid = week_grid(garden, prospective)
-    areas = Enum.map(growing_areas, &Area.from_schema/1)
 
-    {_placements, _occupancy, unplaced} =
-      strategy.assign(grid, areas, Enum.map(prospective, &to_unit(&1, grid)))
+    {_placements, _occupancy, already_unplaced} = solve(strategy, garden, areas, existing)
+    {placements, _occupancy, unplaced} = solve(strategy, garden, areas, prospective)
 
-    if Enum.any?(new_ids, &Map.has_key?(unplaced, &1)) do
+    # Refused if anything stops fitting, not just the new units: squares are pinned exactly, so a
+    # new unit that took a square some other pinned unit needs would silently evict it.
+    if Enum.any?(Map.keys(unplaced), &(not Map.has_key?(already_unplaced, &1))) do
       {:error, :no_room}
     else
-      do_fill(garden, plant, group, quantity, current)
+      cells = for p <- placements, p.unit_id in new_ids, do: Enum.map(p.cells, &cell_map/1)
+      Gardens.insert_block_units(garden, plant, group, cells)
+      build(garden)
     end
   end
 
+  defp solve(_strategy, _garden, _areas, []), do: {[], nil, %{}}
+
+  defp solve(strategy, garden, areas, garden_plants) do
+    grid = week_grid(garden, garden_plants)
+    strategy.assign(grid, areas, Enum.map(garden_plants, &to_unit(&1, grid)))
+  end
+
+  # A new unit may take any of the group's squares; which ones it gets is what the dry run decides.
   defp prospective_row(id, garden, plant, group) do
     %GardenPlant{
       id: id,
@@ -234,17 +268,9 @@ defmodule GardenOptimizer.Scheduling do
       growing_area_id: group.growing_area_id,
       planting_window_start: group.start_date,
       planting_window_end: group.window_end_date,
+      planting_cells: Enum.map(group.squares, &cell_map/1),
       origin: :block_fill
     }
-  end
-
-  defp do_fill(garden, plant, group, quantity, current) do
-    Gardens.set_block_quantity(garden, plant, group, quantity, current)
-
-    case build(garden) do
-      {:ok, schedule} -> {:ok, schedule}
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   @doc "How many units of `plant` this feature has already planted into `group`."
@@ -253,11 +279,21 @@ defmodule GardenOptimizer.Scheduling do
   end
 
   defp block_fill_unit?(garden_plant, plant, group) do
+    garden_plant.plant_id == plant.id and in_block?(garden_plant, group)
+  end
+
+  # Planted by this feature, in this window, into squares that all belong to the group. Rows filled
+  # before squares were pinned have no cells and are left alone.
+  defp in_block?(%GardenPlant{planting_cells: nil}, _group), do: false
+
+  defp in_block?(garden_plant, group) do
+    squares = MapSet.new(group.squares)
+
     garden_plant.origin == :block_fill and
-      garden_plant.plant_id == plant.id and
       garden_plant.growing_area_id == group.growing_area_id and
       garden_plant.planting_window_start == group.start_date and
-      garden_plant.planting_window_end == group.window_end_date
+      garden_plant.planting_window_end == group.window_end_date and
+      Enum.all?(garden_plant.planting_cells, &MapSet.member?(squares, {&1["row"], &1["col"]}))
   end
 
   ## Reading
@@ -336,6 +372,7 @@ defmodule GardenOptimizer.Scheduling do
           start_week: start_week,
           start_date: start_date,
           weeks_available: weeks,
+          squares: squares |> Enum.map(&{&1.row, &1.col}) |> Enum.sort(),
           # Inclusive last week the squares are still free, as a date the pin can be stored as.
           window_end_date: Date.add(start_date, (weeks - 1) * 7)
         }
