@@ -73,15 +73,21 @@ Picking one opens a sidebar offering only crops that can be planted *and* finish
 running to first frost: they hold their square until then, so a window something else reclaims
 genuinely cannot take them.
 
-Filling pins the unit to the **bed and the window**, not to the individual squares, and stores that
-on `garden_plants` alongside an `origin` recording that a person chose it. The placer then re-solves
-normally, so there is one placement code path and the choice survives a re-build. Two consequences
-worth knowing:
+Filling pins each unit to the **bed, the window, and the exact squares it occupies**, and stores that
+on `garden_plants` alongside an `origin` recording that a person chose it. The squares are chosen by
+a dry run of the real placer restricted to the row you clicked, so plants fill those squares in
+reading order — top-left first — and never spill into the rest of the bed. The placer then re-solves
+normally, so there is one placement code path and every filled plant stays put across a re-build.
+Consequences worth knowing:
 
-- Plants land in whichever squares of that bed are free during the window, which may not be the
-  exact ones listed in the row you clicked. The row's count is still the cap.
-- The cap is the area of those squares, deliberately — the window alone would let a fast crop be
-  succession-planted through the whole bed for the rest of the season.
+- Adding one more never moves the ones already there. Removing one leaves a gap that the next
+  addition fills.
+- The cap is the area of those squares, less whatever other crops already went into them —
+  deliberately, since the window alone would let a fast crop be succession-planted through those
+  squares for the rest of the season.
+- Because the squares are exact, a later change that claims them first (say, more early crops from
+  the workbench) leaves the filled plant unplaced rather than moving it; the schedule reports it.
+- Plants filled before squares were pinned carry no squares and still behave as bed-and-window pins.
 
 ## Access and ownership
 

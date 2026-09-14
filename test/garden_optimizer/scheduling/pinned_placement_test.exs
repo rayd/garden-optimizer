@@ -104,6 +104,106 @@ defmodule GardenOptimizer.Scheduling.PinnedPlacementTest do
     end
   end
 
+  describe "a unit pinned to squares" do
+    defp on_squares(plant, area, range, cells, id \\ Ecto.UUID.generate()) do
+      %Unit{
+        id: id,
+        plant: plant,
+        pinned_area_id: area.id,
+        pinned_range: range,
+        pinned_cells: MapSet.new(cells)
+      }
+    end
+
+    defp lettuce do
+      plant(
+        sq_in: 36,
+        anchor_offset_weeks_min: 0,
+        anchor_offset_weeks_max: 30,
+        harvest_type: :once,
+        days_to_maturity: 25
+      )
+    end
+
+    test "takes only squares from its set, even when earlier ones are free" do
+      lettuce = lettuce()
+      bed = area(rows: 4, cols: 4)
+      allowed = [{2, 2}, {3, 3}]
+      units = for _ <- 1..2, do: on_squares(lettuce, bed, {12, 16}, allowed)
+
+      {placements, _occ, unplaced} = EarliestFit.assign(grid([lettuce]), [bed], units)
+
+      assert unplaced == %{}
+      assert placements |> Enum.flat_map(& &1.cells) |> Enum.sort() == allowed
+      assert Enum.all?(placements, &(&1.plant_index == 12))
+    end
+
+    test "a multi-square plant needs its whole rectangle inside the set" do
+      cabbage =
+        plant(
+          sq_in: 144,
+          anchor_offset_weeks_min: 0,
+          anchor_offset_weeks_max: 30,
+          harvest_type: :once,
+          days_to_maturity: 25
+        )
+
+      bed = area(rows: 4, cols: 4)
+      g = grid([cabbage])
+
+      # Four squares in a row hold no 2x2.
+      in_a_row = [{0, 0}, {0, 1}, {0, 2}, {0, 3}]
+
+      {[], _occ, unplaced} =
+        EarliestFit.assign(g, [bed], [on_squares(cabbage, bed, {12, 16}, in_a_row)])
+
+      assert Map.values(unplaced) == [:no_room]
+
+      square = [{2, 2}, {2, 3}, {3, 2}, {3, 3}]
+
+      {[placement], _occ, %{}} =
+        EarliestFit.assign(g, [bed], [on_squares(cabbage, bed, {12, 16}, square)])
+
+      assert Enum.sort(placement.cells) == square
+    end
+
+    test "whose squares are already taken is reported rather than moved" do
+      lettuce = lettuce()
+
+      tomato =
+        plant(
+          sq_in: 144,
+          anchor_offset_weeks_min: 0,
+          anchor_offset_weeks_max: 0,
+          harvest_type: :continuous
+        )
+
+      # The tomato goes in first and holds the top-left 2x2 all season; the rest of the bed is free.
+      bed = area(rows: 2, cols: 4)
+      units = units(tomato, 1) ++ [on_squares(lettuce, bed, {12, 16}, [{0, 0}])]
+
+      {[placement], _occ, unplaced} = EarliestFit.assign(grid([tomato, lettuce]), [bed], units)
+
+      assert placement.cells |> Enum.sort() == [{0, 0}, {0, 1}, {1, 0}, {1, 1}]
+      assert Map.values(unplaced) == [:no_room]
+    end
+
+    test "claims its squares before a bed-and-window pin going in the same week" do
+      lettuce = lettuce()
+      bed = area(rows: 1, cols: 1)
+
+      # Ids chosen so the bed-only pin would win if the tie fell through to id order.
+      bed_only = %Unit{id: "a", plant: lettuce, pinned_area_id: bed.id, pinned_range: {12, 12}}
+      exact = on_squares(lettuce, bed, {12, 12}, [{0, 0}], "z")
+
+      {[placement], _occ, unplaced} =
+        EarliestFit.assign(grid([lettuce]), [bed], [bed_only, exact])
+
+      assert placement.unit_id == "z"
+      assert unplaced == %{"a" => :no_room}
+    end
+  end
+
   describe "re-solving after a pin is added" do
     setup do
       tomato =

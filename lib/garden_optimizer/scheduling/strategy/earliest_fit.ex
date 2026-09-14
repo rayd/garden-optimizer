@@ -13,8 +13,8 @@ defmodule GardenOptimizer.Scheduling.Strategy.EarliestFit do
       each opening a fresh one.
 
   Ordering is by the earliest week a unit can *actually* go in — its eligible range narrowed by
-  whatever the gardener pinned — and a pinned unit wins ties, being the more constrained of the
-  two. Sorting on the narrowed start is what keeps re-solving stable: a unit pinned to a window
+  whatever the gardener pinned — and the more constrained unit wins ties (see
+  `Unit.constraint_rank/1`). A unit pinned to squares may only take squares from that set. Sorting on the narrowed start is what keeps re-solving stable: a unit pinned to a window
   opening in week 20 sorts among the other week-20 plantings rather than ahead of everything, so
   it cannot reach back and take squares that earlier plantings had already settled into.
 
@@ -33,7 +33,7 @@ defmodule GardenOptimizer.Scheduling.Strategy.EarliestFit do
     units
     |> Enum.map(&annotate(&1, grid))
     |> Enum.sort_by(fn %{effective_from: from, footprint: fp, unit: unit} ->
-      {from, if(Unit.fully_pinned?(unit), do: 0, else: 1), -Footprint.square_count(fp), unit.id}
+      {from, Unit.constraint_rank(unit), -Footprint.square_count(fp), unit.id}
     end)
     |> Enum.reduce({[], Occupancy.new(), %{}}, fn candidate, {placed, occupancy, unplaced} ->
       case place(candidate, grid, areas, occupancy) do
@@ -98,7 +98,7 @@ defmodule GardenOptimizer.Scheduling.Strategy.EarliestFit do
         span = Enum.to_list(index..last//1)
 
         Enum.find_value(areas, fn area ->
-          case find_cells(footprint, area, span, occupancy) do
+          case find_cells(footprint, area, unit.pinned_cells, span, occupancy) do
             nil -> nil
             cells -> {index, last, span, area, cells}
           end
@@ -130,9 +130,10 @@ defmodule GardenOptimizer.Scheduling.Strategy.EarliestFit do
   defp cell_demand({:block, _w, _h}), do: @capacity
 
   # Small plant: one square, best fit, so partly-used squares fill up before empty ones open.
-  defp find_cells({:shared, sq_in}, %Area{} = area, span, occupancy) do
+  defp find_cells({:shared, sq_in}, %Area{} = area, allowed, span, occupancy) do
     area
     |> Area.cells()
+    |> Enum.filter(&allowed?(allowed, &1))
     |> Enum.filter(&Occupancy.room?(occupancy, {area.id, elem(&1, 0), elem(&1, 1)}, span, sq_in))
     |> Enum.max_by(
       fn {r, c} -> Occupancy.peak_used(occupancy, {area.id, r, c}, span) end,
@@ -146,18 +147,23 @@ defmodule GardenOptimizer.Scheduling.Strategy.EarliestFit do
   end
 
   # Large plant: the top-left-most w x h rectangle that is completely empty for the whole span.
-  defp find_cells({:block, w, h}, %Area{} = area, span, occupancy) do
+  defp find_cells({:block, w, h}, %Area{} = area, allowed, span, occupancy) do
     Enum.find_value(0..(area.rows - h)//1, fn row ->
       Enum.find_value(0..(area.cols - w)//1, fn col ->
         cells = for r <- row..(row + h - 1)//1, c <- col..(col + w - 1)//1, do: {r, c}
 
-        if Enum.all?(
-             cells,
-             &Occupancy.room?(occupancy, {area.id, elem(&1, 0), elem(&1, 1)}, span, @capacity)
-           ) do
+        if Enum.all?(cells, &allowed?(allowed, &1)) and
+             Enum.all?(
+               cells,
+               &Occupancy.room?(occupancy, {area.id, elem(&1, 0), elem(&1, 1)}, span, @capacity)
+             ) do
           cells
         end
       end)
     end)
   end
+
+  # A unit pinned to squares may only use those squares; one without that pin may use any.
+  defp allowed?(nil, _cell), do: true
+  defp allowed?(allowed, cell), do: MapSet.member?(allowed, cell)
 end

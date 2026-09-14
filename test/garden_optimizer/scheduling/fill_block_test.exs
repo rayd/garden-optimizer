@@ -41,6 +41,33 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
     |> Enum.find(&(&1.start_week == start_week))
   end
 
+  defp block_count(garden, plant, group) do
+    garden |> Gardens.list_garden_plants() |> Scheduling.block_unit_count(plant, group)
+  end
+
+  defp lettuce_fixture(attrs \\ []) do
+    plant_fixture(
+      Keyword.merge(
+        [
+          variety_name: "Buttercrunch",
+          sq_in: 36,
+          harvest_type: :once,
+          days_to_maturity: 35,
+          anchor_offset_weeks_min: -4,
+          anchor_offset_weeks_max: 30
+        ],
+        attrs
+      )
+    )
+  end
+
+  # Each unit of `plant` in the schedule mapped to the squares it holds.
+  defp cells_by_unit(schedule, plant) do
+    for a <- schedule.assignments, a.garden_plant.plant_id == plant.id, into: %{} do
+      {a.garden_plant_id, a.cells |> Enum.map(&{&1["row"], &1["col"]}) |> Enum.sort()}
+    end
+  end
+
   describe "free_squares_by_bed/1" do
     test "groups squares that open together in the same bed", %{schedule: schedule, bed: bed} do
       [%{growing_area: area, groups: groups}] = Scheduling.free_squares_by_bed(schedule)
@@ -55,6 +82,13 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
       assert season_long.count == 124
       assert reclaimed.count == 4
       assert reclaimed.weeks_available == schedule.week_count - 5
+    end
+
+    test "each group names the squares it is made of", %{schedule: schedule, bed: bed} do
+      group = group_for(schedule, bed, 6)
+
+      assert length(group.squares) == group.count
+      assert group.squares == Enum.sort(group.squares)
     end
 
     test "the window end is a real date the pin can be stored as", %{schedule: schedule, bed: bed} do
@@ -201,7 +235,7 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
           anchor_offset_weeks_max: 30
         )
 
-      assert Scheduling.block_capacity(group, lettuce) == 4
+      assert Scheduling.block_capacity(group, lettuce, []) == 4
       assert {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 4)
       assert {:error, :no_room} = Scheduling.fill_block(garden, lettuce, group, 5)
     end
@@ -218,7 +252,7 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
         )
 
       # Four to a square across four squares.
-      assert Scheduling.block_capacity(group, radish) == 16
+      assert Scheduling.block_capacity(group, radish, []) == 16
     end
 
     test "a plant too big for the group fits none of it", %{group: group} do
@@ -231,7 +265,53 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
         )
 
       # A 3x3 block needs 9 squares; the group has 4.
-      assert Scheduling.block_capacity(group, tomato) == 0
+      assert Scheduling.block_capacity(group, tomato, []) == 0
+    end
+
+    test "fills the clicked squares in order, never moving what is already there", %{
+      garden: garden,
+      group: group
+    } do
+      lettuce = lettuce_fixture()
+
+      # One at a time, the way the stepper does it — including past a partial fill.
+      snapshots =
+        for quantity <- 1..4 do
+          {:ok, schedule} = Scheduling.fill_block(garden, lettuce, group, quantity)
+          cells_by_unit(schedule, lettuce)
+        end
+
+      snapshots
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.each(fn [before, after_] ->
+        assert Map.take(after_, Map.keys(before)) == before
+      end)
+
+      # Top-left first, and together they end up holding exactly the squares that were clicked.
+      assert snapshots |> hd() |> Map.values() == [[hd(group.squares)]]
+
+      assert snapshots |> List.last() |> Map.values() |> Enum.concat() |> Enum.sort() ==
+               group.squares
+    end
+
+    test "the cap counts other crops already planted into the same squares", %{
+      garden: garden,
+      group: group
+    } do
+      lettuce = lettuce_fixture()
+      spinach = lettuce_fixture(variety_name: "Bloomsdale")
+
+      {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 3)
+
+      assert Scheduling.block_capacity(group, spinach, Gardens.list_garden_plants(garden)) == 1
+      assert {:error, :no_room} = Scheduling.fill_block(garden, spinach, group, 2)
+      assert {:ok, schedule} = Scheduling.fill_block(garden, spinach, group, 1)
+
+      taken =
+        Map.values(cells_by_unit(schedule, lettuce)) ++
+          Map.values(cells_by_unit(schedule, spinach))
+
+      assert taken |> Enum.concat() |> Enum.sort() == group.squares
     end
 
     test "refuses to overfill, and writes nothing when it does", %{garden: garden, group: group} do
@@ -268,9 +348,9 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
       {:ok, 2} = Gardens.set_plant_quantity(garden, lettuce, 2)
       {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 3)
 
-      assert Gardens.count_block_units(garden, lettuce, group) == 3
+      assert block_count(garden, lettuce, group) == 3
       assert {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 1)
-      assert Gardens.count_block_units(garden, lettuce, group) == 1
+      assert block_count(garden, lettuce, group) == 1
 
       # The two workbench units are untouched.
       manual =
@@ -282,7 +362,7 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
       assert Enum.all?(manual, &is_nil(&1.planting_window_start))
     end
 
-    test "records provenance and the window on every row it creates", %{
+    test "records provenance, the window, and the squares on every row it creates", %{
       garden: garden,
       group: group,
       bed: bed
@@ -308,6 +388,11 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
                  row.planting_window_start == group.start_date and
                  row.planting_window_end == group.window_end_date
              end)
+
+      # One square each, both inside the group, and not the same one.
+      cells = Enum.map(rows, fn row -> Enum.map(row.planting_cells, &{&1["row"], &1["col"]}) end)
+      assert Enum.all?(cells, &(length(&1) == 1 and hd(&1) in group.squares))
+      assert cells |> Enum.uniq() |> length() == 2
     end
 
     test "the pin survives a plain re-build from the workbench", %{
@@ -336,6 +421,7 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
         for a <- rebuilt.assignments, a.garden_plant.plant_id == lettuce.id, do: a.plant_date
 
       assert Enum.sort(after_rebuild) == Enum.sort(placed_at)
+      assert cells_by_unit(rebuilt, lettuce) == cells_by_unit(filled, lettuce)
 
       assert Enum.all?(rebuilt.assignments, fn a ->
                a.garden_plant.plant_id != lettuce.id or a.growing_area_id == bed.id

@@ -248,30 +248,18 @@ defmodule GardenOptimizer.Gardens do
   end
 
   @doc """
-  Reconcile how many units of `plant` are pinned to one free-square group.
+  Add units of `plant` to one free-square group, one row per entry in `cells_per_unit`, each pinned
+  to the group's bed and window and to exactly those squares.
 
-  The match is scoped to `origin: :block_fill` and the group's exact bed and window, so filling a
-  block never disturbs units the gardener added from the workbench — even of the same plant, in
-  the same bed.
-
-  Capacity is *not* checked here; `Scheduling.fill_block/5` has already proven the units fit by
-  running the real placer. Area arithmetic would be a weaker and contradictory second opinion.
+  Capacity is *not* checked here; `Scheduling.fill_block/5` has already proven the units fit — and
+  chosen their squares — by running the real placer. Area arithmetic would be a weaker and
+  contradictory second opinion.
   """
-  @spec set_block_quantity(Garden.t(), Plant.t(), map(), non_neg_integer(), non_neg_integer()) ::
-          {:ok, non_neg_integer()}
-  def set_block_quantity(%Garden{} = garden, %Plant{} = plant, group, quantity, current) do
-    cond do
-      quantity == current -> {:ok, quantity}
-      quantity > current -> {:ok, insert_block_units(garden, plant, group, quantity - current)}
-      true -> {:ok, delete_block_units(garden, plant, group, current - quantity)}
-    end
-  end
-
-  defp insert_block_units(garden, plant, group, count) do
+  def insert_block_units(%Garden{} = garden, %Plant{} = plant, group, cells_per_unit) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     rows =
-      for _ <- 1..count//1 do
+      for cells <- cells_per_unit do
         %{
           id: Ecto.UUID.generate(),
           garden_id: garden.id,
@@ -279,43 +267,23 @@ defmodule GardenOptimizer.Gardens do
           growing_area_id: group.growing_area_id,
           planting_window_start: group.start_date,
           planting_window_end: group.window_end_date,
+          planting_cells: cells,
           origin: :block_fill,
           inserted_at: now,
           updated_at: now
         }
       end
 
-    {_count, _} = Repo.insert_all(GardenPlant, rows)
-    count_block_units(garden, plant, group)
+    {count, _} = Repo.insert_all(GardenPlant, rows)
+    {:ok, count}
   end
 
-  defp delete_block_units(garden, plant, group, count) do
-    doomed =
-      garden
-      |> block_units_query(plant, group)
-      |> order_by([gp], desc: gp.inserted_at, desc: gp.id)
-      |> limit(^count)
-      |> select([gp], gp.id)
-      |> Repo.all()
+  @doc "Delete specific plant units, scoped to the garden so a stray id can't reach another."
+  def delete_garden_plants(%Garden{id: garden_id}, ids) do
+    {count, _} =
+      Repo.delete_all(from gp in GardenPlant, where: gp.garden_id == ^garden_id and gp.id in ^ids)
 
-    Repo.delete_all(from gp in GardenPlant, where: gp.id in ^doomed)
-    count_block_units(garden, plant, group)
-  end
-
-  @doc "How many units of `plant` are pinned to `group`."
-  def count_block_units(%Garden{} = garden, %Plant{} = plant, group) do
-    garden |> block_units_query(plant, group) |> Repo.aggregate(:count)
-  end
-
-  defp block_units_query(%Garden{id: garden_id}, %Plant{id: plant_id}, group) do
-    from gp in GardenPlant,
-      where:
-        gp.garden_id == ^garden_id and
-          gp.plant_id == ^plant_id and
-          gp.origin == :block_fill and
-          gp.growing_area_id == ^group.growing_area_id and
-          gp.planting_window_start == ^group.start_date and
-          gp.planting_window_end == ^group.window_end_date
+    {:ok, count}
   end
 
   @doc "Remove every unit of a plant from the garden."
