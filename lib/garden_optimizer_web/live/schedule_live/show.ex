@@ -34,6 +34,7 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
          |> assign(:unplaced, Scheduling.unplaced_details(schedule))
          |> assign(:legend, legend(schedule))
          |> assign(:filling, nil)
+         |> assign(:unsaved, false)
          |> assign(:importing, false)
          |> assign(:free_squares, Scheduling.free_squares_by_bed(schedule))
          |> select_week(first_interesting_week(schedule))}
@@ -57,8 +58,10 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
     {:noreply, open_sidebar(socket, bed_id, window)}
   end
 
+  # Every way out of the sidebar saves. The fills are already written as plant rows, so closing
+  # without a build would leave the schedule behind describing a garden that no longer exists.
   def handle_event("close_fill", _params, socket) do
-    {:noreply, assign(socket, filling: nil, importing: false)}
+    {:noreply, socket |> save_fills() |> assign(filling: nil, importing: false)}
   end
 
   def handle_event(
@@ -115,16 +118,13 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
     plant = Plants.get_plant!(plant_id)
 
     case Scheduling.fill_block(garden, plant, filling.group, quantity) do
-      {:ok, schedule} ->
+      :ok ->
         socket
-        |> reload_schedule(schedule)
+        |> assign(:unsaved, true)
         |> refresh_sidebar()
 
       {:error, :no_room} ->
         put_flash(socket, :error, no_room_message(filling, plant, quantity))
-
-      {:error, _reason} ->
-        put_flash(socket, :error, "Couldn't update that planting.")
     end
   end
 
@@ -144,6 +144,19 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
       # Within the area cap, but the rectangles don't pack.
       true ->
         "These squares can't fit #{pluralize(quantity, plant.variety_name)}."
+    end
+  end
+
+  # Fills only touch plant rows; this is the one build that turns them into a schedule.
+  defp save_fills(%{assigns: %{unsaved: false}} = socket), do: socket
+
+  defp save_fills(socket) do
+    case Scheduling.build(socket.assigns.garden) do
+      {:ok, schedule} ->
+        socket |> assign(:unsaved, false) |> reload_schedule(schedule)
+
+      {:error, _reason} ->
+        put_flash(socket, :error, "Couldn't update the schedule with those plantings.")
     end
   end
 
@@ -210,23 +223,10 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
       offered: offered,
       quantities: quantities,
       garden_totals: garden_totals,
-      remaining: still_free(socket.assigns.free_squares, bed, group),
+      # From plant rows, not the schedule: the schedule isn't rebuilt until the sidebar closes.
+      remaining: Scheduling.block_squares_free(garden_plants, group),
       capacities: Map.new(offered, &{&1.id, Scheduling.block_capacity(group, &1, garden_plants)})
     }
-  end
-
-  # How many of the clicked squares are still free for the whole of that window.
-  defp still_free(free_squares, bed, group) do
-    clicked = MapSet.new(group.squares)
-
-    free_squares
-    |> Enum.filter(&(&1.growing_area.id == bed.id))
-    |> Enum.flat_map(& &1.groups)
-    |> Enum.filter(
-      &(&1.start_date == group.start_date and &1.window_end_date == group.window_end_date)
-    )
-    |> Enum.flat_map(& &1.squares)
-    |> Enum.count(&MapSet.member?(clicked, &1))
   end
 
   defp clamp(week, week_count), do: week |> max(1) |> min(week_count)
@@ -344,7 +344,7 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
         </div>
       </div>
 
-      <.fill_sidebar :if={@filling} filling={@filling} importing={@importing} />
+      <.fill_sidebar :if={@filling} filling={@filling} importing={@importing} unsaved={@unsaved} />
     </Layouts.app>
     """
   end
@@ -438,6 +438,7 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
 
   attr :filling, :map, required: true
   attr :importing, :boolean, required: true
+  attr :unsaved, :boolean, required: true
 
   defp fill_sidebar(assigns) do
     ~H"""
@@ -555,7 +556,17 @@ defmodule GardenOptimizerWeb.ScheduleLive.Show do
         </div>
 
         <footer class="border-t border-base-300 px-5 py-3">
-          <button type="button" phx-click="close_fill" class="btn btn-sm btn-block">Done</button>
+          <p :if={@unsaved} id="fill-unsaved" class="mb-2 text-xs text-base-content/55">
+            The schedule updates when you're done.
+          </p>
+          <button
+            type="button"
+            phx-click="close_fill"
+            phx-disable-with="Updating schedule…"
+            class="btn btn-sm btn-block"
+          >
+            Done
+          </button>
         </footer>
       </aside>
     </div>
