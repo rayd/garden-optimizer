@@ -57,6 +57,10 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
     Enum.min_by(groups, & &1.count)
   end
 
+  defp block_count(garden, plant, group) do
+    garden |> Gardens.list_garden_plants() |> Scheduling.block_unit_count(plant, group)
+  end
+
   defp quick_crop(attrs \\ []) do
     plant_fixture(
       Keyword.merge(
@@ -200,7 +204,33 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
       |> render_click()
 
     assert html =~ "6 in the garden"
-    assert Gardens.count_block_units(garden, lettuce, group) == 1
+    assert block_count(garden, lettuce, group) == 1
+  end
+
+  test "stepping one at a time fills every square, and the last can still be taken back",
+       %{view: view, bed: bed, garden: garden} do
+    lettuce = quick_crop()
+    group = reclaimed_group(garden)
+    open_group(view, bed, group)
+
+    plus =
+      ~s{button[phx-click="step_block_quantity"][phx-value-plant-id="#{lettuce.id}"][phx-value-by="1"]}
+
+    minus =
+      ~s{button[phx-click="step_block_quantity"][phx-value-plant-id="#{lettuce.id}"][phx-value-by="-1"]}
+
+    for left <- 3..0//-1 do
+      view |> element(plus) |> render_click()
+      assert view |> element("#fill-remaining") |> render() =~ ~r/>\s*#{left}\s*</
+    end
+
+    assert block_count(garden, lettuce, group) == 4
+    assert view |> has_element?(plus <> "[disabled]")
+
+    # The row is gone from the list behind, but the sidebar still owns those four units.
+    view |> element(minus) |> render_click()
+    assert block_count(garden, lettuce, group) == 3
+    assert view |> element("#fill-remaining") |> render() =~ ~r/>\s*1\s*</
   end
 
   test "the space in those squares cannot be exceeded", %{view: view, bed: bed, garden: garden} do
@@ -213,7 +243,7 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
       |> render_change(%{"plant-id" => lettuce.id, "quantity" => "5"})
 
     assert html =~ "at most 4"
-    assert Gardens.count_block_units(garden, lettuce, reclaimed_group(garden)) == 0
+    assert block_count(garden, lettuce, reclaimed_group(garden)) == 0
   end
 
   test "a crop too large for the group says so plainly", %{view: view, bed: bed, garden: garden} do

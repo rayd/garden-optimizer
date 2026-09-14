@@ -5,11 +5,13 @@ defmodule GardenOptimizer.Gardens.GardenPlant do
   Quantity is expressed as row count, which is what allows the schedule grid to name the exact
   unit occupying a square.
 
-  A unit may be pinned: `growing_area_id` fixes the bed, and `planting_window_start/end` fix the
-  span of dates it may go in. The scheduler honours both but never writes them — a pin is an input
-  to placement, not a result of it. Pinning a *window* rather than an exact date leaves the placer
-  free to choose the week inside it, and pinning neither the squares nor the week means a future
-  optimizer keeps real room to work within the bed.
+  A unit may be pinned: `growing_area_id` fixes the bed, `planting_window_start/end` fix the span
+  of dates it may go in, and `planting_cells` fixes the squares within that bed. The scheduler
+  honours all three but never writes them — a pin is an input to placement, not a result of it.
+  Pinning a *window* rather than an exact date still leaves the placer free to choose the week.
+
+  Squares are pinned when a gardener fills free squares, so what they filled stays where they put
+  it: with only the bed pinned, every re-solve was free to shuffle those units around the bed.
   """
   use Ecto.Schema
   import Ecto.Changeset
@@ -25,6 +27,9 @@ defmodule GardenOptimizer.Gardens.GardenPlant do
   schema "garden_plants" do
     field :planting_window_start, :date
     field :planting_window_end, :date
+
+    # The squares this unit must occupy, as [%{"row" => r, "col" => c}] like assignment cells.
+    field :planting_cells, {:array, :map}
 
     # Who chose this unit's constraints. Deliberately separate from "is there a window": the two
     # answer different questions, and they come apart as soon as anything but a person sets a pin.
@@ -46,8 +51,15 @@ defmodule GardenOptimizer.Gardens.GardenPlant do
 
   def changeset(garden_plant, attrs) do
     garden_plant
-    |> cast(attrs, [:growing_area_id, :planting_window_start, :planting_window_end, :origin])
+    |> cast(attrs, [
+      :growing_area_id,
+      :planting_window_start,
+      :planting_window_end,
+      :planting_cells,
+      :origin
+    ])
     |> validate_window()
+    |> validate_cells()
     |> foreign_key_constraint(:growing_area_id)
     |> check_constraint(:planting_window_end,
       name: :planting_window_ordered,
@@ -72,6 +84,15 @@ defmodule GardenOptimizer.Gardens.GardenPlant do
 
       true ->
         changeset
+    end
+  end
+
+  # Squares are coordinates within one bed, so they mean nothing without it.
+  defp validate_cells(changeset) do
+    if get_field(changeset, :planting_cells) && is_nil(get_field(changeset, :growing_area_id)) do
+      add_error(changeset, :planting_cells, "needs a growing area")
+    else
+      changeset
     end
   end
 end
