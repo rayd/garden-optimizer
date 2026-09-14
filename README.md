@@ -80,6 +80,8 @@ reading order — top-left first — and never spill into the rest of the bed. T
 normally, so there is one placement code path and every filled plant stays put across a re-build.
 Consequences worth knowing:
 
+- Changing a quantity only writes plant rows; the schedule is rebuilt once, when the sidebar is
+  closed with Done (or dismissed), rather than on every step.
 - Adding one more never moves the ones already there. Removing one leaves a gap that the next
   addition fills.
 - The cap is the area of those squares, less whatever other crops already went into them —

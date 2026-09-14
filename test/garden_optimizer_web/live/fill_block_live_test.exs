@@ -162,8 +162,8 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
     assert basil.harvest_type == :continuous
   end
 
-  test "setting a quantity plants into the bed and shrinks the free squares",
-       %{view: view, bed: bed, garden: garden} do
+  test "setting a quantity plants into the bed, and Done shrinks the free squares",
+       %{view: view, bed: bed, garden: garden, schedule: before_schedule} do
     lettuce = quick_crop()
     group = reclaimed_group(garden)
     open_group(view, bed, group)
@@ -173,11 +173,21 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
       |> element(~s{#block-qty-#{lettuce.id}})
       |> render_change(%{"plant-id" => lettuce.id, "quantity" => "4"})
 
-    # Sidebar stays open, and that group is gone from the list behind it.
+    # Sidebar stays open and counts the squares as taken, but nothing is rebuilt yet: the group is
+    # still in the list behind it.
     assert html =~ "Buttercrunch"
+    assert view |> element("#fill-remaining") |> render() =~ ~r/>\s*0\s*</
+    assert html =~ GardenOptimizerWeb.ScheduleLive.Show.group_dom_id(bed, group)
+    assert has_element?(view, "#fill-unsaved")
+    assert Scheduling.get_schedule(garden).id == before_schedule.id
+
+    html =
+      view |> element(~s{#fill-sidebar footer button[phx-click="close_fill"]}) |> render_click()
+
     refute html =~ GardenOptimizerWeb.ScheduleLive.Show.group_dom_id(bed, group)
 
     schedule = Scheduling.get_schedule(garden)
+    refute schedule.id == before_schedule.id
     placed = Enum.filter(schedule.assignments, &(&1.garden_plant.plant_id == lettuce.id))
 
     assert length(placed) == 4
@@ -227,7 +237,7 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
     assert block_count(garden, lettuce, group) == 4
     assert view |> has_element?(plus <> "[disabled]")
 
-    # The row is gone from the list behind, but the sidebar still owns those four units.
+    # The sidebar still owns those four units, so the last can be stepped back down.
     view |> element(minus) |> render_click()
     assert block_count(garden, lettuce, group) == 3
     assert view |> element("#fill-remaining") |> render() =~ ~r/>\s*1\s*</
@@ -278,5 +288,31 @@ defmodule GardenOptimizerWeb.FillBlockLiveTest do
       view |> element(~s{#fill-sidebar footer button[phx-click="close_fill"]}) |> render_click()
 
     refute html =~ "Plant 4 squares"
+  end
+
+  test "closing with nothing changed doesn't rebuild",
+       %{view: view, bed: bed, garden: garden, schedule: schedule} do
+    quick_crop()
+    open_reclaimed(view, garden, bed)
+
+    view |> element(~s{#fill-sidebar footer button[phx-click="close_fill"]}) |> render_click()
+
+    assert Scheduling.get_schedule(garden).id == schedule.id
+  end
+
+  test "dismissing the sidebar another way still saves",
+       %{view: view, bed: bed, garden: garden, schedule: schedule} do
+    lettuce = quick_crop()
+    open_reclaimed(view, garden, bed)
+
+    view
+    |> element(~s{#block-qty-#{lettuce.id}})
+    |> render_change(%{"plant-id" => lettuce.id, "quantity" => "2"})
+
+    view |> element(~s{#fill-sidebar button[aria-label="Close"]}) |> render_click()
+
+    rebuilt = Scheduling.get_schedule(garden)
+    refute rebuilt.id == schedule.id
+    assert Enum.count(rebuilt.assignments, &(&1.garden_plant.plant_id == lettuce.id)) == 2
   end
 end

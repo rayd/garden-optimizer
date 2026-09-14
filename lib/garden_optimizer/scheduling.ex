@@ -167,7 +167,12 @@ defmodule GardenOptimizer.Scheduling do
   end
 
   @doc """
-  Set how many units of `plant` are planted into one free-square group, and re-solve.
+  Set how many units of `plant` are planted into one free-square group.
+
+  Only the garden's plant rows change; the stored schedule is *not* rebuilt. A full build is slow,
+  and a gardener stepping a quantity up one at a time would pay for it on every click, so the caller
+  runs `build/2` once they are done filling. Everything this function checks — the cap, the dry
+  run — reads plant rows rather than the stored schedule, so successive fills stay correct in between.
 
   The cap is enforced by running the real placer in memory first: if any of the new units would
   not land, nothing is written and `{:error, :no_room}` comes back. That is stricter than area
@@ -183,7 +188,7 @@ defmodule GardenOptimizer.Scheduling do
   delete a unit the gardener added from the workbench.
   """
   @spec fill_block(Garden.t(), Plant.t(), map(), non_neg_integer(), keyword()) ::
-          {:ok, Schedule.t()} | {:error, atom()}
+          :ok | {:error, :no_room}
   def fill_block(%Garden{} = garden, %Plant{} = plant, group, quantity, opts \\ [])
       when is_integer(quantity) and quantity >= 0 do
     strategy = Keyword.get(opts, :strategy, @default_strategy)
@@ -193,13 +198,13 @@ defmodule GardenOptimizer.Scheduling do
 
     cond do
       quantity == current ->
-        {:ok, get_schedule(garden)}
+        :ok
 
       quantity < current ->
         # Units come back oldest first, so the tail is what was added last — a clean undo.
         doomed = mine |> Enum.take(quantity - current) |> Enum.map(& &1.id)
         Gardens.delete_garden_plants(garden, doomed)
-        build(garden)
+        :ok
 
       quantity > block_capacity(group, plant, existing) ->
         {:error, :no_room}
@@ -247,7 +252,7 @@ defmodule GardenOptimizer.Scheduling do
     else
       cells = for p <- placements, p.unit_id in new_ids, do: Enum.map(p.cells, &cell_map/1)
       Gardens.insert_block_units(garden, plant, group, cells)
-      build(garden)
+      :ok
     end
   end
 
@@ -276,6 +281,22 @@ defmodule GardenOptimizer.Scheduling do
   @doc "How many units of `plant` this feature has already planted into `group`."
   def block_unit_count(garden_plants, %Plant{} = plant, group) do
     Enum.count(garden_plants, &block_fill_unit?(&1, plant, group))
+  end
+
+  @doc """
+  How many of a group's squares nothing has been planted into yet, by any crop.
+
+  Read from the pinned plant rows rather than the stored schedule, so it stays accurate while fills
+  are waiting to be built.
+  """
+  def block_squares_free(garden_plants, group) do
+    taken =
+      garden_plants
+      |> Enum.filter(&in_block?(&1, group))
+      |> Enum.flat_map(& &1.planting_cells)
+      |> MapSet.new(&{&1["row"], &1["col"]})
+
+    group.count - MapSet.size(taken)
   end
 
   defp block_fill_unit?(garden_plant, plant, group) do

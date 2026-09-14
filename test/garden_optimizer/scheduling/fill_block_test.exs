@@ -186,7 +186,8 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
           anchor_offset_weeks_max: 30
         )
 
-      assert {:ok, schedule} = Scheduling.fill_block(garden, lettuce, group, 3)
+      assert :ok = Scheduling.fill_block(garden, lettuce, group, 3)
+      {:ok, schedule} = Scheduling.build(garden)
 
       placed =
         Enum.filter(schedule.assignments, &(&1.garden_plant.plant_id == lettuce.id))
@@ -216,7 +217,8 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
           anchor_offset_weeks_max: 30
         )
 
-      {:ok, schedule} = Scheduling.fill_block(garden, lettuce, group, 4)
+      :ok = Scheduling.fill_block(garden, lettuce, group, 4)
+      {:ok, schedule} = Scheduling.build(garden)
       after_fill = group_for(schedule, bed, 6)
 
       assert after_fill == nil or after_fill.count < group.count
@@ -236,7 +238,7 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
         )
 
       assert Scheduling.block_capacity(group, lettuce, []) == 4
-      assert {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 4)
+      assert :ok = Scheduling.fill_block(garden, lettuce, group, 4)
       assert {:error, :no_room} = Scheduling.fill_block(garden, lettuce, group, 5)
     end
 
@@ -274,10 +276,12 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
     } do
       lettuce = lettuce_fixture()
 
-      # One at a time, the way the stepper does it — including past a partial fill.
+      # One at a time, the way the stepper does it — including past a partial fill. Built after each
+      # step only so the test can look; the stepper itself defers that to Done.
       snapshots =
         for quantity <- 1..4 do
-          {:ok, schedule} = Scheduling.fill_block(garden, lettuce, group, quantity)
+          :ok = Scheduling.fill_block(garden, lettuce, group, quantity)
+          {:ok, schedule} = Scheduling.build(garden)
           cells_by_unit(schedule, lettuce)
         end
 
@@ -301,11 +305,12 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
       lettuce = lettuce_fixture()
       spinach = lettuce_fixture(variety_name: "Bloomsdale")
 
-      {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 3)
+      :ok = Scheduling.fill_block(garden, lettuce, group, 3)
 
       assert Scheduling.block_capacity(group, spinach, Gardens.list_garden_plants(garden)) == 1
       assert {:error, :no_room} = Scheduling.fill_block(garden, spinach, group, 2)
-      assert {:ok, schedule} = Scheduling.fill_block(garden, spinach, group, 1)
+      assert :ok = Scheduling.fill_block(garden, spinach, group, 1)
+      {:ok, schedule} = Scheduling.build(garden)
 
       taken =
         Map.values(cells_by_unit(schedule, lettuce)) ++
@@ -346,10 +351,10 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
 
       # The same plant also chosen from the workbench, unpinned.
       {:ok, 2} = Gardens.set_plant_quantity(garden, lettuce, 2)
-      {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 3)
+      :ok = Scheduling.fill_block(garden, lettuce, group, 3)
 
       assert block_count(garden, lettuce, group) == 3
-      assert {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 1)
+      assert :ok = Scheduling.fill_block(garden, lettuce, group, 1)
       assert block_count(garden, lettuce, group) == 1
 
       # The two workbench units are untouched.
@@ -376,7 +381,7 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
           anchor_offset_weeks_max: 30
         )
 
-      {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 2)
+      :ok = Scheduling.fill_block(garden, lettuce, group, 2)
 
       rows = Repo.all(from gp in GardenPlant, where: gp.plant_id == ^lettuce.id)
 
@@ -409,7 +414,8 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
           anchor_offset_weeks_max: 30
         )
 
-      {:ok, filled} = Scheduling.fill_block(garden, lettuce, group, 3)
+      :ok = Scheduling.fill_block(garden, lettuce, group, 3)
+      {:ok, filled} = Scheduling.build(garden)
 
       placed_at =
         for a <- filled.assignments, a.garden_plant.plant_id == lettuce.id, do: a.plant_date
@@ -428,6 +434,47 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
              end)
     end
 
+    test "leaves the stored schedule alone until the caller builds", %{
+      garden: garden,
+      group: group
+    } do
+      lettuce = lettuce_fixture()
+      spinach = lettuce_fixture(variety_name: "Bloomsdale")
+      before_schedule = Scheduling.get_schedule(garden)
+
+      :ok = Scheduling.fill_block(garden, lettuce, group, 3)
+      :ok = Scheduling.fill_block(garden, lettuce, group, 2)
+      :ok = Scheduling.fill_block(garden, spinach, group, 2)
+
+      # Nothing rebuilt: same schedule row, and nothing from the fills in it.
+      assert Scheduling.get_schedule(garden).id == before_schedule.id
+
+      # The squares are still tracked between fills, without the schedule's help.
+      assert Scheduling.block_squares_free(Gardens.list_garden_plants(garden), group) == 0
+      assert {:error, :no_room} = Scheduling.fill_block(garden, spinach, group, 3)
+
+      {:ok, schedule} = Scheduling.build(garden)
+
+      taken =
+        Map.values(cells_by_unit(schedule, lettuce)) ++
+          Map.values(cells_by_unit(schedule, spinach))
+
+      assert taken |> Enum.concat() |> Enum.sort() == group.squares
+    end
+
+    test "counts free squares from the plant rows", %{garden: garden, group: group} do
+      garden_plants = fn -> Gardens.list_garden_plants(garden) end
+      assert Scheduling.block_squares_free(garden_plants.(), group) == 4
+
+      :ok = Scheduling.fill_block(garden, lettuce_fixture(), group, 1)
+      assert Scheduling.block_squares_free(garden_plants.(), group) == 3
+
+      # Four small radishes share one square.
+      radish = lettuce_fixture(variety_name: "Sparkler", sq_in: 9, days_to_maturity: 25)
+      :ok = Scheduling.fill_block(garden, radish, group, 4)
+      assert Scheduling.block_squares_free(garden_plants.(), group) == 2
+    end
+
     test "setting the same quantity is a no-op", %{garden: garden, group: group} do
       lettuce =
         plant_fixture(
@@ -438,10 +485,10 @@ defmodule GardenOptimizer.Scheduling.FillBlockTest do
           anchor_offset_weeks_max: 30
         )
 
-      {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 2)
+      :ok = Scheduling.fill_block(garden, lettuce, group, 2)
       before = Repo.aggregate(GardenPlant, :count)
 
-      assert {:ok, _} = Scheduling.fill_block(garden, lettuce, group, 2)
+      assert :ok = Scheduling.fill_block(garden, lettuce, group, 2)
       assert Repo.aggregate(GardenPlant, :count) == before
     end
   end
